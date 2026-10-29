@@ -1965,7 +1965,7 @@ function salvarAlteracaoAcesso(){
   As SENHAS de acesso continuam apenas no navegador (localStorage),
   nunca são enviadas ao banco de dados.
 
-  Para funcionar, preencha SUPABASE_URL e SUPABASE_ANON_KEY em config.js.
+  Para funcionar, configure SUPABASE_URL e SUPABASE_ANON_KEY em config.js. Use somente chave publishable/anon no navegador; nunca service_role/secret key.
 */
 
 let _dadosCache = [];
@@ -1987,11 +1987,9 @@ function obterClienteSupabase(){
 }
 
 function _headersSupabase(extra){
-  return Object.assign({
-    "apikey": SUPABASE_ANON_KEY,
-    "Authorization": "Bearer "+SUPABASE_ANON_KEY,
-    "Content-Type": "application/json"
-  }, extra||{});
+  const h={"apikey": SUPABASE_ANON_KEY,"Content-Type": "application/json"};
+  if(!String(SUPABASE_ANON_KEY).startsWith("sb_")) h["Authorization"]="Bearer "+SUPABASE_ANON_KEY;
+  return Object.assign(h, extra||{});
 }
 
 // Converte do formato usado no app (camelCase) para as colunas do banco (snake_case)
@@ -4105,7 +4103,7 @@ login();
 async function inicializarApp(){
 
   if(!supabaseConfigurado()){
-    console.warn("ATENÇÃO: config.js não está configurado com sua SUPABASE_URL/ANON_KEY. O portal vai funcionar apenas localmente nesta sessão, sem salvar no banco de dados compartilhado.");
+    console.warn("ATENÇÃO: config.js não está configurado com SUPABASE_URL/SUPABASE_ANON_KEY. O portal funcionará apenas localmente, sem sincronização compartilhada.");
   }
 
   await buscarDadosSupabase();
