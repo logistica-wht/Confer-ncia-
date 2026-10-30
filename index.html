@@ -3305,85 +3305,90 @@ document.getElementById(
 
 /* ================= STATUS ================= */
 
-function alterarStatus(id){
+async function alterarStatus(id){
 
-if(!exigirAdmin()) return;
+  if(!exigirAdmin()) return;
 
-const novo =
-document.getElementById(
-"novoStatus"
-).value;
+  const seletor = document.getElementById("novoStatus");
+  if(!seletor) {
+    alert("Não foi possível localizar o campo de status.");
+    return;
+  }
 
+  const novo = seletor.value;
+  const dados = obterDados();
+  const registro = dados.find(x => String(x.id) === String(id));
 
-const d =
-obterDados();
+  if(!registro){
+    alert("Protocolo não encontrado. Atualize a página e tente novamente.");
+    return;
+  }
 
+  if(!supabaseConfigurado()){
+    alert("Supabase não está configurado. O status não foi enviado ao banco de dados.");
+    return;
+  }
 
-const i =
-d.find(
-x=>x.id===id
-);
+  const agora = new Date().toISOString();
+  const atualizacao = { status: novo };
 
+  if(novo === "Chegou"){
+    atualizacao.chegada = registro.chegada || agora;
+  }
+  if(novo === "Em Carregamento"){
+    atualizacao.chegada = registro.chegada || agora;
+    atualizacao.inicio = registro.inicio || agora;
+  }
+  if(novo === "Finalizado"){
+    atualizacao.chegada = registro.chegada || agora;
+    atualizacao.inicio = registro.inicio || agora;
+    atualizacao.fim = agora;
+  }
+  if(novo === "Cancelado"){
+    atualizacao.cancelado_em = registro.canceladoEm || agora;
+    atualizacao.motivo_cancelamento = registro.motivoCancelamento || "Cancelado pelo painel operacional.";
+  }
 
-if(!i)return;
+  const botao = document.querySelector('#modal button[onclick^="alterarStatus"]');
+  if(botao){ botao.disabled = true; botao.textContent = "SALVANDO..."; }
 
+  try{
+    const url = SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/agendamentos?id=eq." + encodeURIComponent(registro.id);
+    const resposta = await fetch(url, {
+      method: "PATCH",
+      headers: _headersSupabase({ "Prefer": "return=representation" }),
+      body: JSON.stringify(atualizacao)
+    });
 
-const agora =
-new Date().toISOString();
+    const corpo = await resposta.text();
+    if(!resposta.ok){
+      let detalhe = corpo;
+      try { const erro = JSON.parse(corpo); detalhe = erro.message || erro.details || erro.hint || corpo; } catch(_) {}
+      throw new Error("Supabase (HTTP " + resposta.status + "): " + detalhe);
+    }
 
+    let linhas = [];
+    try { linhas = corpo ? JSON.parse(corpo) : []; } catch(_) {}
+    if(!linhas.length){
+      throw new Error("Nenhum registro foi atualizado. Verifique se o protocolo existe e se as permissões de UPDATE e SELECT estão liberadas no Supabase.");
+    }
 
-i.status=novo;
+    const atualizado = _doBanco(linhas[0]);
+    const indice = dados.findIndex(x => String(x.id) === String(id));
+    if(indice >= 0) dados[indice] = atualizado;
+    _dadosCache = dados;
 
+    fecharModal();
+    atualizarKPIs();
+    renderTabela();
+    alert("Status do protocolo " + atualizado.protocolo + " atualizado para: " + atualizado.status);
 
-if(novo==="Chegou")
-i.chegada =
-i.chegada||agora;
-
-
-if(novo==="Em Carregamento"){
-
-i.chegada =
-i.chegada||agora;
-
-i.inicio=agora;
-
-}
-
-
-if(novo==="Finalizado"){
-
-i.chegada =
-i.chegada||agora;
-
-i.inicio =
-i.inicio||agora;
-
-i.fim=agora;
-
-}
-
-
-if(novo==="Cancelado"){
-
-i.canceladoEm =
-i.canceladoEm||agora;
-
-if(!i.motivoCancelamento){
-
-i.motivoCancelamento =
-"Cancelado pelo painel operacional.";
-
-}
-
-}
-
-
-salvarDados(d);
-
-fecharModal();
-
-renderTabela();
-
+  }catch(erro){
+    console.error("Erro ao alterar status do protocolo:", erro);
+    alert("Não foi possível atualizar o status.\n\n" + erro.message);
+  }finally{
+    if(botao){ botao.disabled = false; botao.textContent = "ATUALIZAR STATUS"; }
+  }
 }
 
 
