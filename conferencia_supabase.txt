@@ -1,8 +1,0 @@
--- Conferência Digital: rode no SQL Editor do Supabase
-create table if not exists conf_pdfs(carga text primary key,cliente text,peso text,arquivo text,itens jsonb not null default '[]',criado timestamptz default now());
-create table if not exists conf_romaneios(protocolo text primary key,cargas text,itens jsonb not null default '[]',status text,conferente text,motorista text,inicio timestamptz,fim timestamptz,ass_conf text,ass_mot text,exportado boolean default false);
-create table if not exists conferentes(usuario text primary key,nome text,senha_hash text not null);
-alter table conf_pdfs enable row level security;alter table conf_romaneios enable row level security;alter table conferentes enable row level security;
-create policy "cf_all" on conf_pdfs for all using(true) with check(true);
-create policy "cf_all" on conf_romaneios for all using(true) with check(true);
-create policy "cf_all" on conferentes for all using(true) with check(true);
