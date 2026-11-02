@@ -1,0 +1,23 @@
+WHEATON BRASIL VIDROS - Portal de Agendamento + Conferencia Digital (v5 - 02/11/2026)
+
+ARQUIVOS PARA SUBIR NO GITHUB (todos na MESMA pasta / raiz do repositorio)
+  index.html               Portal: transportadora e administrador (agendamento, cancelamento,
+                           status, Painel Operacional, Conferencia Digital - administracao)
+  conferente.html          Somente conferentes (fila, romaneio, assinatura, PDF)
+  conferente.webmanifest   Instalacao do app dos conferentes (tablet/celular)
+  sw.js                    Service worker (sempre carrega a versao mais nova)
+  config.js                SEU arquivo com SUPABASE_URL e SUPABASE_ANON_KEY (nao mudou)
+  icon-192.png             SEU icone (nao mudou)
+
+BANCO DE DADOS (Supabase > SQL Editor)
+  conferencia_supabase.sql                    Rodar 1 vez (cria/atualiza as 4 tabelas e permissoes)
+  conferencia_supabase_realtime_opcional.sql  Opcional (painel em tempo real)
+
+ENDERECOS
+  Transportadora / Administrador:  https://SEU-USUARIO.github.io/REPOSITORIO/
+  Conferentes:                     https://SEU-USUARIO.github.io/REPOSITORIO/conferente.html
+
+SE ALGO NAO FUNCIONAR
+  - Rodape da pagina mostra "v5 - 02/11/2026". Se nao mostrar, o navegador esta com versao antiga:
+    limpe os dados do site (F12 > Application > Clear site data) ou abra em aba anonima.
+  - Uma faixa vermelha na parte de baixo da tela mostra o erro (ex.: config.js nao encontrado).
