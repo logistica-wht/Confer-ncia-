@@ -1715,7 +1715,7 @@ Ações
 <input type="file" id="cfFiles" accept="application/pdf" multiple style="max-width:340px">
 <div class="actions" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn btn-blue" onclick="cfImportar()">Importar PDFs selecionados</button><button class="btn btn-gray" onclick="cfLerPasta()">Ler pasta única (OneDrive)</button><button class="btn btn-green" onclick="cfExportar()">Salvar romaneios na pasta OneDrive</button></div>
 <div id="cfMsg" class="alert" style="display:none;margin-top:12px"></div>
-<div class="table-wrapper" style="margin-top:12px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Itens</th><th>Peso (kg)</th><th>Arquivo</th><th></th></tr></thead><tbody id="cfPdfs"></tbody></table></div></div></div>
+<div class="table-wrapper" style="margin-top:12px"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Transportadora</th><th>Itens</th><th>Peso (kg)</th><th>Arquivo</th><th></th></tr></thead><tbody id="cfPdfs"></tbody></table></div></div></div>
 <div class="card"><div class="card-header"><h2>Conferentes</h2><p>Login e senha de acesso à conferência.</p></div><div class="card-body"><div class="grid"><div class="col-3 form-group"><label>Usuário</label><input id="cfNovoUser"></div><div class="col-3 form-group"><label>Nome</label><input id="cfNovoNome"></div><div class="col-3 form-group"><label>Senha (mín. 6)</label><input id="cfNovaSenha" type="password"></div><div class="col-3 form-group"><label>&nbsp;</label><button class="btn btn-blue" onclick="cfAddConferente()">Adicionar</button></div></div>
 <div class="table-wrapper" style="margin-top:12px"><table><thead><tr><th>Usuário</th><th>Nome</th><th></th></tr></thead><tbody id="cfConfs"></tbody></table></div></div></div></div>
 <div class="card"><div class="card-header"><h2>Fila de Conferência</h2><p id="cfFilaInfo"></p></div><div class="card-body table-wrapper"><table><thead><tr><th>Ação</th><th>#</th><th>Protocolo</th><th>Transportadora</th><th>Motorista</th><th>Placa</th><th>Agendado</th><th>Chegada</th><th>Pedido(s)</th><th>Situação</th></tr></thead><tbody id="cfFila"></tbody></table></div></div>
@@ -1806,7 +1806,7 @@ WHEATON BRASIL VIDROS
 </strong>
 
 <span>
-Portal de Agendamento • Logística e Operações • v5 - 02/11/2026
+Portal de Agendamento • Logística e Operações • v6 - 04/11/2026
 </span>
 
 </footer>
@@ -1815,7 +1815,7 @@ Portal de Agendamento • Logística e Operações • v5 - 02/11/2026
 <script>
 /* Aviso de erro na tela + versao (ajuda a diagnosticar problemas no GitHub / cache) */
 (function(){
-var VERSAO='v5 - 02/11/2026';window.WHEATON_VERSAO=VERSAO;
+var VERSAO='v6 - 04/11/2026';window.WHEATON_VERSAO=VERSAO;
 function mostrar(msg){try{var b=document.getElementById('erroGlobal');
 if(!b){b=document.createElement('div');b.id='erroGlobal';
 b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b71c1c;color:#fff;padding:10px 14px;font:13px/1.4 Arial,sans-serif;cursor:pointer';
@@ -4126,10 +4126,12 @@ async function cfGet(t){if(!supabaseConfigurado())return _cfL(t);try{const r=awa
 
 async function cfSave(t,row,key){if(!supabaseConfigurado()){const a=_cfL(t).filter(x=>x[key]!==row[key]);a.push(row);localStorage.setItem('cf_'+t,JSON.stringify(a));return true;}
 const _post=b=>fetch(_cfB()+t+'?on_conflict='+key,{method:'POST',headers:_headersSupabase({Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify([b])});
-let r=await _post(row);
-if(!r.ok&&t==='conf_romaneios'){const tx=await r.clone().text();
- if(/cavalo|carreta/i.test(tx)){const {cavalo,carreta,...resto}=row;r=await _post(resto);
-  if(r.ok){if(!CF.avisoCol){CF.avisoCol=1;alert('Aviso: os campos Cavalo e Carreta ainda não existem no banco e não serão sincronizados. Execute o arquivo conferencia_supabase.sql no Supabase.');}return true;}}}
+const corpo={...row};let r=await _post(corpo),tent=0;
+while(!r.ok&&tent++<8){const tx=await r.clone().text();
+ const m=tx.match(/'([a-z_0-9]+)' column/i)||tx.match(/column "([a-z_0-9]+)" of relation/i);
+ if(!m||!(m[1] in corpo)||m[1]===key)break;
+ delete corpo[m[1]];r=await _post(corpo);
+ if(r.ok&&!CF.avisoCol){CF.avisoCol=1;alert('Aviso: o banco ainda não tem a coluna "'+m[1]+'" da tabela '+t+'. Execute o arquivo conferencia_supabase.sql no Supabase para sincronizar todos os campos.');}}
 if(!r.ok){alert('Erro ao salvar ('+r.status+'). Execute o arquivo conferencia_supabase.sql no Supabase.');return false;}return true;}
 
 async function cfDel(t,key,val){if(!supabaseConfigurado()){localStorage.setItem('cf_'+t,JSON.stringify(_cfL(t).filter(x=>x[key]!==val)));return;}
@@ -4148,22 +4150,51 @@ function cfFilaLista(){return obterDados().filter(a=>a.status==='Chegou'||a.stat
 async function cfPdfJs(){if(window._cfw)return;const t=await(await fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js')).text();
 pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([t],{type:'text/javascript'}));window._cfw=1;}
 
-async function cfLerPdf(file){await cfPdfJs();const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;let txt='',itens=[],seen={};
-for(let n=1;n<=doc.numPages;n++){const tc=await(await doc.getPage(n)).getTextContent();const t=tc.items.map(i=>i.str).join(' ');txt+=' '+t;
+function cfLinhas(its){const L=[];its.filter(i=>String(i.s).trim()).slice().sort((a,b)=>b.y-a.y||a.x-b.x).forEach(i=>{let l=L.find(l=>Math.abs(l.y-i.y)<=3);if(!l){l={y:i.y,it:[]};L.push(l);}l.it.push(i);});L.forEach(l=>l.it.sort((a,b)=>a.x-b.x));return L;}
+
+const CF_ROT=/^(Carga|Cliente|Cidade|Estado|Transport\w*|Pedido|Data|Endere\w*|Produto|Pallet|Lote\w*)\s*:?$/i;
+function cfCampo(L,re){const cortar=a=>{const o=[];for(const t of a){if(CF_ROT.test(t))break;o.push(t);}return o;};
+for(const l of L){const k=l.it.findIndex(i=>re.test(String(i.s).trim()));if(k<0)continue;
+let v=cortar(l.it.slice(k+1).map(i=>String(i.s).trim()).filter(Boolean));
+if(!v.length){const lab=l.it[k];const ab=L.filter(m=>m.y<l.y&&l.y-m.y<=22).sort((a,b)=>b.y-a.y)[0];
+if(ab)v=cortar(ab.it.filter(i=>i.x>=lab.x-5&&i.x<lab.x+170).map(i=>String(i.s).trim()).filter(Boolean));}
+if(v.length)return v;}return null;}
+
+function cfParsePdf(pgs,nome){
+const L=cfLinhas(pgs[0]?pgs[0].its:[]);const txt=pgs.map(p=>p.t).join(' ');const avisos=[];
+let carga='';const cg=cfCampo(L,/^Carga:?$/i);
+if(cg){const m=cg.join(' ').match(/\d{5,}/);if(m)carga=m[0];}
+if(!carga){const m=txt.match(/Carga\s*:?\s*(\d{5,})/i);if(m)carga=m[1];}
+if(!carga){const m=String(nome).match(/\d{6,}/);if(m){carga=m[0];avisos.push('pedido tirado do nome do arquivo (cabeçalho não encontrado)');}}
+const sep=v=>{const a=(v||[]).slice();let c='';if(a.length>1&&/^[\d.\-\/]+$/.test(a[0]))c=a.shift();else if(a.length===1){const m=a[0].match(/^(\d{4}\.\d{4})\s+(.+)$/);if(m){c=m[1];a[0]=m[2];}}return{c,n:a.join(' ').replace(/\s+/g,' ').trim()};};
+let cl=sep(cfCampo(L,/^Cliente:?$/i));
+if(!cl.n){const m=txt.match(/Cliente\s*:?\s*(?:(\d{4}\.\d{4})\s+)?(.+?)\s+(?:Cidade|Estado|Transport\w*|Carga|Lote Sep|UP)\b/i);if(m)cl={c:m[1]||'',n:m[2].trim()};}
+let tr=sep(cfCampo(L,/^Transport(?:adora)?:?$/i));
+if(!tr.n){const m=txt.match(/Transport(?:adora)?\s*:?\s*(?:(\d+)\s+)?(\S.*?)(?:\s+(?:Lote|Endere|Produto|Cliente|Carga|Cidade|Estado|Pallet|UP)\b|\s*\*\*\*|$)/i);if(m)tr={c:m[1]||'',n:m[2].trim()};}
+const transportadora=tr.n||(tr.c&&!/^0+$/.test(tr.c)?tr.c:'');
+const itens=[],seen={};
+pgs.forEach(p=>{const t=p.t;
 const ad=[...t.matchAll(/WNL-[A-Z]{2}-\d\d-\d{3}-\s*\d\d-\d\d/g)].map(m=>m[0].replace(/\s+/g,''));
 const pa=[...t.matchAll(/\b60\d{5}\b/g)].map(m=>m[0]),lo=[...t.matchAll(/\b\d{6}\.\d{3}\b/g)].map(m=>m[0]);
 const pr=(t.match(/F\d{4}\.\d{4}\.V\d{3}/)||[''])[0];
-pa.forEach((x,i)=>{if(!seen[x]){seen[x]=1;itens.push({pallet:x,lote:lo[i]||'',endereco:ad[i]||'',produto:pr});}});}
-const carga=((txt.match(/Carga\s+(\d{5,8})/)||[])[1])||((txt.match(/\b19\d{5}\b/)||[])[0])||((file.name.match(/\d{5,}/)||[])[0]);
-const cl=(txt.match(/\b\d{4}\.\d{4}\s+(.+?)\s+(?:Cidade|Estado|Transport|Lote Sep|UP)\b/)||[])[1]||'';
+pa.forEach((x,i)=>{if(!seen[x]){seen[x]=1;itens.push({pallet:x,lote:lo[i]||'',endereco:ad[i]||'',produto:pr});}});});
 const tot=txt.match(/\b\d+\s+\d+\s+\d+\s+(\d{1,4})\s+([\d.]+)\s*KG/i);
-return {carga:String(carga||''),cliente:cl.trim(),peso:tot?tot[2]:'',total_pdf:tot?Number(tot[1]):null,arquivo:file.name,itens,criado:new Date().toISOString()};}
+if(!txt.trim())avisos.push('PDF sem texto (imagem/escaneado): só o nome do arquivo foi usado');
+return{carga:String(carga||''),cliente:cl.n,cliente_cod:cl.c,transportadora,peso:tot?tot[2]:'',total_pdf:tot?Number(tot[1]):null,arquivo:nome,itens,criado:new Date().toISOString(),avisos};}
 
-async function _cfImp(files){const m=cfMsg;m.style.display='block';let ok=0,av=[];
-for(const f of files){try{const r=await cfLerPdf(f);if(!r.carga||!r.itens.length){av.push(f.name+': não foi possível ler itens');continue;}
-if(r.total_pdf&&r.total_pdf!==r.itens.length)av.push(f.name+': PDF informa '+r.total_pdf+' itens, lidos '+r.itens.length+' — confira');
-const {total_pdf,...row}=r;if(await cfSave('conf_pdfs',row,'carga'))ok++;}catch(e){av.push(f.name+': erro ao ler ('+e.message+')');}}
-m.innerHTML='<strong>'+ok+' pedido(s) importado(s).</strong>'+(av.length?'<br>⚠ '+av.join('<br>⚠ '):'');await cfCarregar();cfRender();}
+async function cfLerPdf(file){await cfPdfJs();const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;const pgs=[];
+for(let n=1;n<=doc.numPages;n++){const tc=await(await doc.getPage(n)).getTextContent();const its=tc.items.filter(i=>typeof i.str==='string').map(i=>({s:i.str,x:i.transform[4],y:i.transform[5]}));pgs.push({its,t:its.map(i=>i.s).join(' ')});}
+return cfParsePdf(pgs,file.name);}
+
+async function _cfImp(files){const m=cfMsg;m.style.display='block';m.innerText='Lendo '+files.length+' PDF(s)...';let ok=0,av=[],lista=[];
+for(const f of files){try{const r=await cfLerPdf(f);
+if(!r.carga){av.push(f.name+': pedido (carga) não encontrado no cabeçalho');continue;}
+(r.avisos||[]).forEach(x=>av.push(f.name+': '+x));
+if(!r.itens.length)av.push(f.name+': pedido '+r.carga+' importado só com o cabeçalho (os itens/pallets não foram lidos; o conferente poderá adicioná-los pela leitura do pallet)');
+else if(r.total_pdf&&r.total_pdf!==r.itens.length)av.push(f.name+': PDF informa '+r.total_pdf+' itens, lidos '+r.itens.length+' (os demais podem ser adicionados na conferência)');
+const ja=CF.pdfs.find(p=>p.carga===r.carga&&p.arquivo!==r.arquivo);if(ja)av.push(f.name+': o pedido '+r.carga+' já tinha sido importado do arquivo '+ja.arquivo+' e foi substituído');
+const {total_pdf,avisos,...row}=r;if(await cfSave('conf_pdfs',row,'carga')){ok++;lista.push(r.carga+' • '+(r.cliente||'sem cliente')+' • '+(r.transportadora||'sem transportadora')+' • '+r.itens.length+' itens');}}catch(e){av.push(f.name+': erro ao ler ('+e.message+')');}}
+m.innerHTML='<strong>'+ok+' pedido(s) importado(s).</strong>'+(lista.length?'<br>'+lista.join('<br>'):'')+(av.length?'<br><br>⚠ '+av.join('<br>⚠ '):'');await cfCarregar();cfRender();}
 
 function cfImportar(){if(!cfFiles.files.length)return alert('Selecione os PDFs.');_cfImp([...cfFiles.files]);}
 
@@ -4182,7 +4213,7 @@ async function cfRemoverConf(u){if(!confirm('Remover o conferente '+u+'?'))retur
 function cfRender(){try{_cfRender();}catch(e){console.error(e);}}
 
 function _cfRender(){const adm=obterPerfil()==='admin';cfAdmin.style.display=adm?'block':'none';
-if(adm){cfPdfs.innerHTML=CF.pdfs.map(p=>`<tr><td>${p.carga}</td><td>${p.cliente||'-'}</td><td>${p.itens.length}</td><td>${p.peso||'-'}</td><td>${p.arquivo}</td><td><button class="btn btn-red btn-small" onclick="cfRemoverPdf('${p.carga}')">Remover</button></td></tr>`).join('')||'<tr><td colspan="6">Nenhum PDF importado.</td></tr>';
+if(adm){cfPdfs.innerHTML=CF.pdfs.map(p=>`<tr><td>${p.carga}</td><td>${p.cliente||'-'}</td><td>${p.transportadora||'-'}</td><td>${p.itens.length}</td><td>${p.peso||'-'}</td><td>${p.arquivo}</td><td><button class="btn btn-red btn-small" onclick="cfRemoverPdf('${p.carga}')">Remover</button></td></tr>`).join('')||'<tr><td colspan="7">Nenhum PDF importado.</td></tr>';
 cfConfs.innerHTML=CF.conf.map(c=>`<tr><td>${c.usuario}</td><td>${c.nome}</td><td><button class="btn btn-red btn-small" onclick="cfRemoverConf('${c.usuario}')">Remover</button></td></tr>`).join('')||'<tr><td colspan="3">Nenhum conferente.</td></tr>';}
 const f=cfFilaLista();const sem=obterDados().filter(a=>a.status==='Chegou'&&!cfMatch(a).length).length;
 cfFilaInfo.innerText=f.length+' veículo(s) na fila'+(adm&&sem?' • '+sem+' chegou(aram) sem PDF do pedido':'')+'. Ordem: horário agendado, depois horário de chegada.';
@@ -4199,7 +4230,7 @@ function cfRomRender(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r){cfRom
 const a=obterDados().find(x=>x.protocolo===r.protocolo)||{};
 const e=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/[^0-9A-Za-z]+/).includes(String(p.carga)))||{};
-const cliente=a.cliente||pdf.cliente||'';
+const cliente=pdf.cliente||a.cliente||'';
 const cavalo=r.cavalo!=null?r.cavalo:(a.placa||'');
 const carreta=r.carreta!=null?r.carreta:'';
 const dataConf=r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):'';
@@ -4211,6 +4242,7 @@ cfRom.innerHTML=`<div class="card-header"><h2>Romaneio ${e(r.protocolo)} — Ped
 ${campo('Protocolo',r.protocolo)}
 ${campo('Placa do veículo',a.placa||'')}
 ${campo('Nome do cliente',cliente)}
+${campo('Transportadora',pdf.transportadora||a.transportadora||'')}
 ${campo('Veículo',a.veiculo||'')}
 <div class="form-group" style="margin:0"><label>Cavalo</label><input id="cfCavalo" value="${e(cavalo)}" placeholder="Placa do cavalo" onchange="cfCab('cavalo',this.value)"></div>
 <div class="form-group" style="margin:0"><label>Carreta</label><input id="cfCarreta" value="${e(carreta)}" placeholder="Placa da carreta" onchange="cfCab('carreta',this.value)"></div>
@@ -4220,9 +4252,10 @@ ${campo('Início da conferência',_cfD(r.inicio))}
 ${campo('Fim da conferência',r.fim?_cfD(r.fim):'Em andamento')}
 </div>
 <div class="form-group" style="max-width:360px;margin-bottom:12px"><label>Ler / digitar nº do pallet</label><input id="cfScan" placeholder="Pallet" onkeydown="if(event.key==='Enter')cfScanOk(this)"></div>
+${r.itens.length?'':'<div class="alert" style="margin-bottom:12px">Este pedido foi importado só com o cabeçalho (cliente, pedido e transportadora). Leia ou digite o nº de cada pallet para adicioná-lo à conferência.</div>'}
 <div class="table-wrapper"><table><thead><tr><th>Conferir</th><th>#</th><th>Pedido</th><th>Pallet</th><th>Lote</th><th>Produto</th><th>Observação</th></tr></thead><tbody>${r.itens.map((i,n)=>`<tr style="${i.ok===true?'background:#e9f7ef':i.ok===false?'background:#ffebee':''}">
 <td style="white-space:nowrap"><button class="btn btn-green btn-small" onclick="cfMarca(${n},true)">OK</button> <button class="btn btn-red btn-small" onclick="cfMarca(${n},false)">Divergência</button> <button class="btn btn-gray btn-small" onclick="cfTrocar(${n})">Trocar pallet</button>${i.pallet_orig?` <button class="btn btn-gray btn-small" onclick="cfDesfazTroca(${n})">Desfazer troca</button>`:''}</td>
-<td>${n+1}</td><td>${e(i.carga)}</td><td>${e(i.pallet)}${i.pallet_orig?`<br><small style="color:#c86b00;font-weight:700">trocado (antes: ${e(i.pallet_orig)})</small>`:''}</td><td>${e(i.lote)}</td><td>${e(i.produto)}</td>
+<td>${n+1}</td><td>${e(i.carga)}</td><td>${e(i.pallet)}${i.adicionado?'<br><small style="color:#1565c0;font-weight:700">adicionado na conferência</small>':''}${i.pallet_orig?`<br><small style="color:#c86b00;font-weight:700">trocado (antes: ${e(i.pallet_orig)})</small>`:''}</td><td>${e(i.lote)}</td><td>${e(i.produto)}</td>
 <td><input value="${e(i.obs||'')}" onchange="cfObs(${n},this.value)" style="min-height:32px;padding:6px"></td></tr>`).join('')}</tbody></table></div>
 <div class="grid" style="margin-top:18px"><div class="col-6 form-group"><label>Assinatura do motorista</label><canvas id="cfSigMot" width="420" height="140" style="border:1px solid var(--border);border-radius:5px;touch-action:none;max-width:100%"></canvas><button class="btn btn-gray btn-small" style="margin-top:6px;width:90px" onclick="cfLimpa('cfSigMot')">Limpar</button></div>
 <div class="col-6 form-group"><label>Assinatura do conferente (${e(r.conferente)})</label><canvas id="cfSigConf" width="420" height="140" style="border:1px solid var(--border);border-radius:5px;touch-action:none;max-width:100%"></canvas><button class="btn btn-gray btn-small" style="margin-top:6px;width:90px" onclick="cfLimpa('cfSigConf')">Limpar</button></div></div>
@@ -4240,19 +4273,26 @@ async function cfMarca(n,v){const r=CF.rom.find(x=>x.protocolo===CF.sel);r.itens
 
 async function cfObs(n,t){const r=CF.rom.find(x=>x.protocolo===CF.sel);r.itens[n].obs=t;await cfSave('conf_romaneios',r,'protocolo');}
 
-function cfScanOk(el){const r=CF.rom.find(x=>x.protocolo===CF.sel);const v=el.value.trim();const n=r.itens.findIndex(i=>String(i.pallet)===v);
-if(n<0){const t=r.itens.find(i=>i.pallet_orig&&String(i.pallet_orig)===v);alert(t?'O pallet '+v+' foi trocado pelo pallet '+t.pallet+'.':'Pallet '+v+' não pertence a este romaneio.');el.value='';return;}cfMarca(n,true);}
+async function cfScanOk(el){const r=CF.rom.find(x=>x.protocolo===CF.sel);const v=el.value.trim();if(!v)return;const n=r.itens.findIndex(i=>String(i.pallet)===v);
+if(n>=0){cfMarca(n,true);return;}
+const t=r.itens.find(i=>i.pallet_orig&&String(i.pallet_orig)===v);
+if(t){alert('O pallet '+v+' foi trocado pelo pallet '+t.pallet+'.');el.value='';return;}
+if(confirm('O pallet '+v+' não consta na lista deste romaneio.\nAdicionar como conferido?')){
+ r.itens.push({carga:String(r.cargas||'').split(',')[0].trim(),pallet:v,lote:'',endereco:'',produto:'',ok:true,adicionado:true,obs:'Pallet adicionado na conferência'});
+ await cfSave('conf_romaneios',r,'protocolo');cfRomRender();const s=document.getElementById('cfScan');if(s)s.focus();return;}
+el.value='';}
 
 function cfPdf(r){const d=new jspdf.jsPDF();const a=obterDados().find(x=>x.protocolo===r.protocolo)||{};
 const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/[^0-9A-Za-z]+/).includes(String(p.carga)))||{};
 let y=15;d.setFontSize(14);d.text('Romaneio Digital de Conferência',10,y);d.setFontSize(9);y+=8;
-const cab=[['Motorista',r.motorista||a.motorista],['Protocolo',r.protocolo],['Placa do veículo',a.placa],['Cliente',a.cliente||pdf.cliente],['Veículo',a.veiculo],['Cavalo',r.cavalo!=null?r.cavalo:a.placa],['Carreta',r.carreta],['Conferente',r.conferente],['Data',r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):''],['Início da conferência',_cfD(r.inicio)],['Fim da conferência',r.fim?_cfD(r.fim):'']];
+const cab=[['Motorista',r.motorista||a.motorista],['Protocolo',r.protocolo],['Placa do veículo',a.placa],['Cliente',pdf.cliente||a.cliente],['Transportadora',pdf.transportadora||a.transportadora],['Veículo',a.veiculo],['Cavalo',r.cavalo!=null?r.cavalo:a.placa],['Carreta',r.carreta],['Conferente',r.conferente],['Data',r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):''],['Início da conferência',_cfD(r.inicio)],['Fim da conferência',r.fim?_cfD(r.fim):'']];
 cab.forEach(([k,v],n)=>{const x=n%2?110:10;d.text(String(k+': '+(v||'-')).substring(0,52),x,y);if(n%2)y+=5;});if(cab.length%2)y+=5;
 d.text('Pedido(s): '+(r.cargas||'-'),10,y);y+=8;
 d.setFont(undefined,'bold');d.text('#',10,y);d.text('Pedido',18,y);d.text('Pallet',45,y);d.text('Lote',80,y);d.text('Produto',110,y);d.text('Resultado',172,y);d.setFont(undefined,'normal');y+=5;
 r.itens.forEach((i,n)=>{if(y>275){d.addPage();y=15;}
 d.text(String(n+1),10,y);d.text(String(i.carga||'').substring(0,14),18,y);d.text(String(i.pallet||'').substring(0,16),45,y);d.text(String(i.lote||'').substring(0,16),80,y);d.text(String(i.produto||'').substring(0,28),110,y);d.text(i.ok?'OK':'DIVERGENCIA',172,y);y+=5;
 if(i.pallet_orig){if(y>275){d.addPage();y=15;}d.text('   Pallet trocado: de '+i.pallet_orig+' para '+i.pallet,10,y);y+=5;}
+if(i.adicionado){if(y>275){d.addPage();y=15;}d.text('   Pallet adicionado na conferencia',10,y);y+=5;}
 if(i.ok===false&&i.obs){if(y>275){d.addPage();y=15;}d.text(('   Obs.: '+i.obs).substring(0,110),10,y);y+=5;}});
 if(y>225){d.addPage();y=15;}y+=8;d.addImage(r.ass_conf,'PNG',10,y,70,25);d.addImage(r.ass_mot,'PNG',110,y,70,25);d.text('Conferente: '+r.conferente,10,y+30);d.text('Motorista: '+(r.motorista||'-'),110,y+30);return d;}
 
