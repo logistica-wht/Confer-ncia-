@@ -1,7 +1,7 @@
 // Service worker do Portal Wheaton + Conferencia Digital.
 // Estrategia: rede primeiro (sempre a versao mais nova do site) e,
 // se estiver sem internet, usa a ultima copia guardada.
-const CACHE = 'wheaton-v8';
+const CACHE = 'wheaton-v10';
 
 self.addEventListener('install', () => self.skipWaiting());
 
