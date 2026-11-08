@@ -1,11 +1,16 @@
-// Service worker do Portal Wheaton + Conferencia Digital.
-// Estrategia: rede primeiro (sempre a versao mais nova do site) e,
-// se estiver sem internet, usa a ultima copia guardada.
-const CACHE = 'wheaton-v8';
+// Service worker: abre o app rápido e funciona como PWA. Nunca guarda dados do Supabase.
+const CACHE = "wheaton-v1";
+const ARQUIVOS = [
+  "./", "./index.html", "./conferente.html", "./config.js",
+  "./manifest.webmanifest", "./conferente.webmanifest",
+  "./icon-192.png", "./icon-512.png"
+];
 
-self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener("install", e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));
+});
 
-self.addEventListener('activate', e => {
+self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys()
       .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
@@ -13,17 +18,18 @@ self.addEventListener('activate', e => {
   );
 });
 
-self.addEventListener('fetch', e => {
+self.addEventListener("fetch", e => {
   const req = e.request;
-  if (req.method !== 'GET') return;
+  if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return;           // Supabase e CDNs: direto da rede
+  if (url.hostname.endsWith("supabase.co")) return;          // dados sempre ao vivo
   e.respondWith(
-    fetch(req, { cache: 'no-store' })
-      .then(res => {
-        if (res && res.ok) { const c = res.clone(); caches.open(CACHE).then(ch => ch.put(req, c)); }
-        return res;
-      })
-      .catch(() => caches.match(req).then(r => r || caches.match('index.html')))
+    fetch(req).then(res => {
+      if (res.ok && (url.origin === location.origin || url.hostname.includes("cdn"))) {
+        const copia = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copia));
+      }
+      return res;
+    }).catch(() => caches.match(req).then(r => r || caches.match("./index.html")))
   );
 });
