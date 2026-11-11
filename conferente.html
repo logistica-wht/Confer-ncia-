@@ -897,7 +897,8 @@ Fila de conferência, romaneio digital e assinatura.
 
 <section id="conferencia" class="page active">
 
-<div class="card"><div class="card-header"><h2>Fila de Conferência</h2><p id="cfFilaInfo"></p></div><div class="card-body table-wrapper"><table><thead><tr><th>Ação</th><th>#</th><th>Protocolo</th><th>Transportadora</th><th>Motorista</th><th>Placa</th><th>Agendado</th><th>Chegada</th><th>Pedido(s)</th><th>Situação</th></tr></thead><tbody id="cfFila"></tbody></table></div></div>
+<div id="cfSenhaCard"></div>
+<div class="card"><div class="card-header"><h2>Fila de Conferência</h2><p id="cfFilaInfo"></p></div><div class="card-body table-wrapper"><table><thead><tr><th>Ação</th><th>Senha</th><th>Faixa</th><th>Protocolo</th><th>Transportadora</th><th>Motorista</th><th>Placa</th><th>Agendado</th><th>Chegada</th><th>Pedido(s)</th><th>Situação</th></tr></thead><tbody id="cfFila"></tbody></table></div></div>
 <div id="cfRom" class="card" style="display:none"></div>
 </section>
 
@@ -1137,7 +1138,7 @@ function login(){
 function logout(){
   sessionStorage.removeItem("wheaton_auth");
   sessionStorage.removeItem("wheaton_perfil");
-  sessionStorage.removeItem("wheaton_conferente");
+  sessionStorage.removeItem("wheaton_conferente");sessionStorage.removeItem("wheaton_conferente_user");
   perfilAtual=null;
   CF.sel=null;
   document.getElementById("loginUser").value="";
@@ -1189,7 +1190,7 @@ await fetch(_cfB()+t+'?'+key+'=eq.'+encodeURIComponent(val),{method:'DELETE',hea
 
 async function _sha(s){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 
-async function cfCarregar(){CF.pdfs=await cfGet('conf_pdfs');CF.rom=await cfGet('conf_romaneios');CF.avul=await cfGet('conf_avulsas');if(obterPerfil()==='admin')CF.conf=await cfGet('conferentes');}
+async function cfCarregar(){CF.pdfs=await cfGet('conf_pdfs');CF.rom=await cfGet('conf_romaneios');CF.avul=await cfGet('conf_avulsas');CF.conf=await cfGet('conferentes');}
 
 function cfMatch(ag){const tk=String(ag.pedido||'').split(/[^0-9A-Za-z\/]+/).filter(Boolean);
 return CF.pdfs.filter(p=>{const c=String(p.carga),b=c.split('/')[0];return tk.includes(c)||tk.some(t=>t.split('/')[0]===c)||(c.includes('/')&&tk.includes(b));});}
@@ -1202,21 +1203,153 @@ function cfFilaLista(){return cfAgs().filter(a=>a.status==='Chegou'||a.status===
 
 async function cfLogin(){const u=loginUser.value.trim().toLowerCase(),p=loginPass.value;const l=await cfGet('conferentes');const h=await _sha(p);
 const c=l.find(x=>x.usuario===u&&x.senha_hash===h);if(!c){loginError.innerText='Usuário ou senha de conferente inválidos.';return;}
-perfilAtual='conferente';sessionStorage.setItem('wheaton_auth','true');sessionStorage.setItem('wheaton_perfil','conferente');sessionStorage.setItem('wheaton_conferente',c.nome||c.usuario);
+perfilAtual='conferente';sessionStorage.setItem('wheaton_auth','true');sessionStorage.setItem('wheaton_perfil','conferente');sessionStorage.setItem('wheaton_conferente',c.nome||c.usuario);sessionStorage.setItem('wheaton_conferente_user',c.usuario);setTimeout(cfBatida,0);
 loginOverlay.style.display='none';atualizarInterfacePorPerfil();mostrarPagina('conferencia');}
 
-function cfRender(){try{_cfRender();}catch(e){console.error(e);}}
+function ehExpress(tipo,qtd){const q=parseInt(qtd,10)||0;if(q<=0)return false;return (tipo==='Palete'&&q<5)||(tipo==='Caixa'&&q<150);}
+
+async function cfPatch(t,key,val,obj){if(!supabaseConfigurado()){const a=_cfL(t);const o=a.find(x=>x[key]===val);if(o)Object.assign(o,obj);localStorage.setItem('cf_'+t,JSON.stringify(a));return true;}
+try{const r=await fetch(_cfB()+t+'?'+key+'=eq.'+encodeURIComponent(val),{method:'PATCH',headers:_headersSupabase({Prefer:'return=minimal'}),body:JSON.stringify(obj)});return r.ok;}catch(e){return false;}}
+
+function cfBatida(){const u=sessionStorage.getItem('wheaton_conferente_user');if(u&&obterPerfil()==='conferente')cfPatch('conferentes','usuario',u,{visto_em:new Date().toISOString()});}
+setInterval(cfBatida,30000);
+
+function cfDia(x){const d=new Date(x);if(!x||isNaN(d))return '';return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function cfRapido(a){return ehExpress(a.tipoEmbalagem,a.qtdVolumes);}
+
+function cfSenhaMapa(){const g={};
+cfAgs().filter(a=>a.chegada).forEach(a=>{const k=cfDia(a.chegada)+(cfRapido(a)?'R':'N');(g[k]=g[k]||[]).push(a);});
+const m={};Object.keys(g).forEach(k=>{const f=k.slice(-1);g[k].sort((x,y)=>String(x.chegada).localeCompare(String(y.chegada))||String(x.protocolo).localeCompare(String(y.protocolo))).forEach((a,i)=>{m[a.protocolo]=f+String(i+1).padStart(3,'0');});});return m;}
+function cfSenha(prot){return cfSenhaMapa()[prot]||'';}
+
+function cfNomeConf(c){return c.nome||c.usuario;}
+
+function cfEta(r){if(!r||r.status!=='Em conferência')return 0;
+const tot=r.itens.length,feitos=r.itens.filter(i=>i.ok!==null).length,rest=tot-feitos;const ck=r.checklist||{};
+let extra=ck.ok?0:120000;if(rest<=0)return extra;
+const ini=new Date(ck.ok_em||r.inicio).getTime();const dec=(Date.now()-ini)/1000;let seg=45;if(feitos>=3&&dec>0)seg=Math.max(5,dec/feitos);
+return extra+rest*seg*1000;}
+
+function cfPlano(){const conf=CF.conf||[],agora=Date.now(),eu=sessionStorage.getItem('wheaton_conferente_user');
+const roms=CF.rom||[];
+const emConf=c=>roms.find(x=>x.status==='Em conferência'&&x.conferente===cfNomeConf(c));
+const ativo=c=>!!emConf(c)||c.usuario===eu||(c.visto_em&&agora-new Date(c.visto_em).getTime()<120000);
+const ultFim=c=>roms.filter(x=>x.status==='Finalizado'&&x.conferente===cfNomeConf(c)).map(x=>String(x.fim||'')).sort().pop()||'';
+const lista=conf.map(c=>{const r=emConf(c);return {c,online:ativo(c),r,eta:r?cfEta(r)+1:0};});
+const ordena=l=>l.slice().sort((x,y)=>x.eta-y.eta||x.ult.localeCompare(y.ult)||cfNomeConf(x.c).localeCompare(cfNomeConf(y.c)));
+lista.forEach(o=>o.ult=ultFim(o.c));
+const on=lista.filter(o=>o.online),rapOn=on.filter(o=>o.c.rapido),norOn=on.filter(o=>!o.c.rapido);
+const fila=cfFilaLista().filter(a=>{const r=roms.find(x=>x.protocolo===a.protocolo);return !r||r.status!=='Em conferência';});
+const rapFila=rapOn.length?fila.filter(cfRapido):[],norFila=fila.filter(a=>!(rapOn.length&&cfRapido(a)));
+const atrib={},dono={};
+const aloca=(cs,fl)=>ordena(cs).forEach((o,i)=>{if(fl[i]){atrib[o.c.usuario]=fl[i].protocolo;dono[fl[i].protocolo]=o.c.usuario;}});
+aloca(rapOn,rapFila);aloca(norOn,norFila);
+return {lista,atrib,dono,rapOn:rapOn.length>0};}
+
+function cfPodeAbrir(a){if(obterPerfil()==='admin')return true;const r=(CF.rom||[]).find(x=>x.protocolo===a.protocolo);if(r&&r.status==='Em conferência')return true;
+return cfPlano().dono[a.protocolo]===sessionStorage.getItem('wheaton_conferente_user');}
+function cfMsgReserva(a){const p=cfPlano(),u=p.dono[a.protocolo];const s=cfSenha(a.protocolo);
+if(u){const c=(CF.conf||[]).find(x=>x.usuario===u);return 'A senha '+s+' está reservada para '+(c?cfNomeConf(c):u)+'.';}
+return 'A senha '+s+' ainda não está reservada para você. Aguarde a sua senha.';}
+
+async function cfToggleRapido(u){for(const c of CF.conf||[]){const v=(c.usuario===u)&&!c.rapido;if(!!c.rapido!==v)await cfPatch('conferentes','usuario',c.usuario,{rapido:v});}
+CF.conf=await cfGet('conferentes');cfRender();}
+
+function cfPainel(){const el=document.getElementById('cfSenhaCard');if(!el)return;
+const E=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const p=cfPlano(),adm=obterPerfil()==='admin',min=ms=>Math.max(1,Math.ceil(ms/60000))+' min';
+if(!adm){const u=sessionStorage.getItem('wheaton_conferente_user'),nome=sessionStorage.getItem('wheaton_conferente');
+const me=p.lista.find(o=>o.c.usuario===u);const prot=p.atrib[u],ag=prot?cfAg(prot):null;
+let h='<div class="card-body" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">';
+if(me&&me.r){h+='<div><div style="font-size:12px;color:#6b7785">Em conferência</div><div style="font-size:30px;font-weight:800">'+E(cfSenha(me.r.protocolo))+'</div></div>';
+ h+='<div style="flex:1;min-width:200px"><strong>'+E(me.r.protocolo)+'</strong><br><small>Liberação estimada: ~'+min(me.eta)+'</small></div>';
+ if(ag)h+='<div style="min-width:220px"><div style="font-size:12px;color:#6b7785">Próxima senha reservada para você</div><div style="font-size:24px;font-weight:800;color:#1565c0">'+E(cfSenha(prot))+'</div><small>'+E(ag.placa||'')+' • '+E(ag.transportadora||'')+'</small></div>';}
+else if(ag){h+='<div><div style="font-size:12px;color:#6b7785">Sua senha'+(me&&me.c.rapido?' • caixa rápido':'')+'</div><div style="font-size:34px;font-weight:800;color:#1565c0">'+E(cfSenha(prot))+'</div></div>';
+ h+='<div style="flex:1;min-width:200px"><strong>'+E(ag.placa||'')+' • '+E(ag.transportadora||'')+'</strong><br><small>'+E(ag.motorista||'')+'</small></div><button class="btn btn-green" onclick="cfAbrir(\''+E(prot)+'\')">Iniciar conferência</button>';}
+else h+='<div><strong>Sem veículo aguardando para você.</strong><br><small>'+(me&&me.c.rapido?'Caixa rápido':'Atendimento normal')+'</small></div>';
+el.innerHTML='<div class="card" style="margin-bottom:16px">'+h+'</div></div>';return;}
+const rows=p.lista.map(o=>{const prot=p.atrib[o.c.usuario];
+ const sit=o.r?'Em conferência '+E(cfSenha(o.r.protocolo))+' • libera em ~'+min(o.eta):(o.online?'Disponível':'Offline');
+ return '<tr><td>'+E(cfNomeConf(o.c))+'</td><td>'+(o.c.rapido?'Caixa rápido':'Normal')+'</td><td>'+sit+'</td><td>'+(prot?'<strong>'+E(cfSenha(prot))+'</strong>':'-')+'</td><td><button class="btn btn-gray btn-small" onclick="cfToggleRapido(\''+E(o.c.usuario)+'\')">'+(o.c.rapido?'Tirar do caixa rápido':'Definir caixa rápido')+'</button></td></tr>';}).join('')||'<tr><td colspan="5">Nenhum conferente cadastrado.</td></tr>';
+el.innerHTML='<div class="card" style="margin-bottom:16px"><div class="card-header"><h2>Senhas e conferentes</h2><p>A próxima senha vai para o conferente que ficar livre primeiro. Embarque rápido: menos de 5 paletes ou 150 caixas.</p></div><div class="card-body table-wrapper"><table><thead><tr><th>Conferente</th><th>Faixa</th><th>Situação</th><th>Próxima senha</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';}
+
+const CF_CK=['1. O material a ser carregado está em perfeito estado (isento de sujidades, insetos, avarias)?','2. O assoalho do veículo apresenta-se limpo, seco, sem odores e sem furos?','3. As paredes e o teto do baú estão ISENTOS de furos, frestas ou infiltrações?','4. O baú está ISENTO de cargas terceiras que possam contaminar ou danificar o produto (químicos, cheiro forte)?','5. Os paletes estão com cantoneiras instaladas e devidamente stretchados em máquina?','6. O registro fotográfico do carregamento foi realizado conforme o padrão ?','7. As últimas 4 pilhas de paletes foram devidamente remontadas e arqueadas?','8. Para clientes específicos (Natura): As etiquetas possuem validade exigida de 10 anos?','9. Controle de Paletes de Entrega: GEE (Vermelho)'];
+const CF_VEIC=['Carreta','Truck','Toco','VUC/3/4','Van','Contêiner 20','Contêiner 40'],CF_CARR=['Baú','Aberto','Sider','Motoboy','Outros'];
+
+function cfChecklistRender(r,a,pdf,e){const ck=r.checklist=r.checklist||{senha:cfSenha(r.protocolo),ok:false,itens:{},ocorrencia:''};ck.itens=ck.itens||{};
+if(!ck.senha)ck.senha=cfSenha(r.protocolo);
+if(!ck.tipo_veiculo){const v=String(a.veiculo||'').toLowerCase();const m=CF_VEIC.find(t=>v.includes(t.toLowerCase().split('/')[0]));if(m)ck.tipo_veiculo=m;}
+const ro=(rot,val)=>`<div class="form-group" style="margin:0"><label>${rot}</label><input readonly value="${e(val)}" style="background:#f3f5f8"></div>`;
+const ed=(rot,val,on,ph)=>`<div class="form-group" style="margin:0"><label>${rot}</label><input value="${e(val)}" placeholder="${ph||''}" onchange="${on}"></div>`;
+const sel=(rot,val,ops,on)=>`<div class="form-group" style="margin:0"><label>${rot}</label><select onchange="${on}"><option value="">Selecione</option>${ops.map(o=>`<option${o===val?' selected':''}>${o}</option>`).join('')}</select></div>`;
+const cavalo=r.cavalo!=null?r.cavalo:(a.placa||''),carreta=r.carreta!=null?r.carreta:'';
+const ag=(a.data?String(a.data).split('-').reverse().join('/'):'')+(a.horario?' '+a.horario:'');
+cfRom.style.display='block';
+cfRom.innerHTML=`<div class="card-header"><h2>Check-list de embarque — ${e(r.protocolo)}</h2><p>Preencha antes de iniciar o romaneio • FP-LOG-57 REV. 13</p></div><div class="card-body">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:18px">
+${ro('Transportadora',pdf.transportadora||a.transportadora||'')}${ro('Senha',ck.senha)}${ro('Agendamento',ag)}${ro('Data da coleta',new Date().toLocaleDateString('pt-BR'))}
+${ed('Placa cavalo',cavalo,"cfCab('cavalo',this.value)")}${ed('Placa carreta',carreta,"cfCab('carreta',this.value)")}
+${sel('Tipo de veículo',ck.tipo_veiculo||'',CF_VEIC,"cfCkCampo('tipo_veiculo',this.value)")}${sel('Carroceria',ck.carroceria||'',CF_CARR,"cfCkCampo('carroceria',this.value)")}
+${ro('Cliente',pdf.cliente||a.cliente||'')}${ro('Motorista',r.motorista||a.motorista||'')}
+${ed('Certificado(s) de qualidade nº(s)',ck.cert||'',"cfCkCampo('cert',this.value)")}${ed('Doca de carga *',ck.doca||'',"cfCkCampo('doca',this.value)",'Ex.: DB-24')}
+${sel('Turno',ck.turno||'',['1º Turno','2º Turno','3º Turno'],"cfCkCampo('turno',this.value)")}
+</div>
+<div class="table-wrapper"><table><thead><tr><th>Itens de verificação / requisitos operacionais</th><th>SIM</th><th>NÃO</th><th>N/A</th></tr></thead><tbody>${CF_CK.map((t,n)=>`<tr><td>${e(t)}</td>${['SIM','NAO','NA'].map(v=>`<td style="text-align:center"><input type="radio" name="ck${n+1}" style="width:20px;height:20px" ${ck.itens[n+1]===v?'checked':''} onchange="cfCkItem(${n+1},'${v}')"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+<div class="form-group" style="margin-top:14px"><label>11. Ocorrência</label><textarea rows="3" onchange="cfCkCampo('ocorrencia',this.value)" style="width:100%">${e(ck.ocorrencia||'')}</textarea></div>
+<div class="actions"><button class="btn btn-gray" onclick="CF.sel=null;cfRomRender()">Fechar</button><button class="btn btn-blue" onclick="cfCkSalvar()">Salvar check-list e iniciar romaneio</button></div></div>`;}
+
+async function cfCkItem(n,v){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r)return;r.checklist.itens[n]=v;await cfSave('conf_romaneios',r,'protocolo');}
+async function cfCkCampo(c,v){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r)return;r.checklist=r.checklist||{itens:{}};r.checklist[c]=String(v||'').trim();await cfSave('conf_romaneios',r,'protocolo');}
+async function cfCkSalvar(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r)return;const ck=r.checklist;
+if(CF_CK.some((t,n)=>!ck.itens[n+1]))return alert('Responda todos os itens do check-list (SIM, NÃO ou N/A).');
+if(!String(ck.doca||'').trim())return alert('Informe a doca de carga.');
+if(CF_CK.some((t,n)=>ck.itens[n+1]==='NAO')&&!String(ck.ocorrencia||'').trim())return alert('Há item marcado como NÃO: descreva a ocorrência.');
+ck.ok=true;ck.ok_em=new Date().toISOString();if(!await cfSave('conf_romaneios',r,'protocolo'))return;cfRomRender();}
+async function cfCkEditar(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r||!r.checklist)return;r.checklist.ok=false;await cfSave('conf_romaneios',r,'protocolo');cfRomRender();}
+
+function cfPdfCheck(d,r,a){const ck=r.checklist||{},M=10,W=190,R=M+W;
+const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};
+const cf=(CF.conf||[]).find(c=>(c.nome||c.usuario)===r.conferente||c.usuario===r.conferente)||{};
+const T=(s,x,y,o)=>d.text(String(s==null?'':s),x,y,o),B=()=>d.setFont('helvetica','bold'),N=()=>d.setFont('helvetica','normal');
+const bx=(x,y,w,h,f)=>{d.setLineWidth(0.25);if(f){d.setFillColor(224,224,224);d.rect(x,y,w,h,'FD');}else d.rect(x,y,w,h);};
+const fm=x=>x?new Date(x).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+try{d.addImage(CF_LOGO,'PNG',M,7,16*CF_LOGO_R,16);}catch(e){}
+B();d.setFontSize(16);T('Check List de Embarque',105,15,{align:'center'});N();d.setFontSize(8);T('FP-LOG-57 REV. 13',105,21,{align:'center'});
+let y=27;
+const cell=(rot,val,x,yy,w,h)=>{bx(x,yy,w,h);B();d.setFontSize(7);T(rot,x+1.5,yy+3.4);N();d.setFontSize(9);T(String(val==null?'':val).substring(0,Math.floor(w*1.8)),x+1.5,yy+h-2);};
+const dia=a.data?String(a.data).split('-').reverse().join('/'):'';
+cell('Transportadora:',a.transportadora||pdf.transportadora,M,y,90,10);cell('Senha:',ck.senha,M+90,y,25,10);cell('Agendamento:',dia+(a.horario?' '+a.horario:''),M+115,y,40,10);cell('Data da Coleta:',r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):'',M+155,y,35,10);y+=10;
+cell('Placa Cavalo:',r.cavalo!=null?r.cavalo:a.placa,M,y,45,10);cell('Placa Carreta:',r.carreta,M+45,y,45,10);cell('Tipo de Veículo / Carroceria:',[ck.tipo_veiculo,ck.carroceria].filter(Boolean).join(' / '),M+90,y,100,10);y+=10;
+cell('Cliente:',pdf.cliente||a.cliente,M,y,90,10);cell('Certificado(s) de Qualidade nº(s):',ck.cert,M+90,y,100,10);y+=10;
+cell('Motorista:',r.motorista||a.motorista,M,y,W,10);y+=10;
+bx(M,y,W,7,1);B();d.setFontSize(8);T('Itens de Verificação / Requisitos Operacionais',M+2,y+4.8);
+const cx=[R-36,R-24,R-12];['SIM','NÃO','N/A'].forEach((t,i)=>T(t,cx[i]+6,y+4.8,{align:'center'}));y+=7;
+CF_CK.forEach((t,n)=>{const ls=d.splitTextToSize(t,W-42),h=Math.max(8,ls.length*3.8+3);bx(M,y,W,h);N();d.setFontSize(8);T(ls,M+2,y+4.6);
+ cx.forEach(x=>d.line(x,y,x,y+h));const v=ck.itens&&ck.itens[n+1];const i=v==='SIM'?0:v==='NAO'?1:v==='NA'?2:-1;if(i>=0){B();d.setFontSize(11);T('X',cx[i]+6,y+h/2+1.6,{align:'center'});}y+=h;});
+bx(M,y,W,7,1);B();d.setFontSize(8);T('11. Ocorrência',M+2,y+4.8);y+=7;bx(M,y,W,20);N();d.setFontSize(8);T(d.splitTextToSize(ck.ocorrencia||'',W-4).slice(0,5),M+2,y+4.5);y+=20;
+bx(M,y,W,7,1);B();d.setFontSize(8);T('Dados de Fechamento do Carregamento',M+2,y+4.8);y+=7;
+const nfs=String(r.nota_fiscal||'').split(/[\s,;]+/).filter(Boolean).length;const cx2=a.tipoEmbalagem==='Caixa'?a.qtdVolumes:'';
+cell('Início:',fm(r.inicio),M,y,34,10);cell('Término:',fm(r.fim),M+34,y,34,10);cell('Qtd. NFs:',nfs||ck.qtd_nfs||'',M+68,y,22,10);cell('Qtd. Paletes:',r.itens.length,M+90,y,32,10);cell('Qtd. Caixas:',cx2,M+122,y,32,10);cell('Doca de Carga:',ck.doca,M+154,y,36,10);y+=10;
+cell('Numeração do Lacre Aplicado:',ck.lacre,M,y,W,10);y+=10;
+bx(M,y,95,7,1);bx(M+95,y,95,7,1);B();d.setFontSize(8);T('Conferente / Operador Responsável',M+2,y+4.8);T('Assinatura do Motorista (Legível)',M+97,y+4.8);y+=7;
+bx(M,y,95,36);bx(M+95,y,95,36);N();d.setFontSize(9);T('Nome: '+String(cf.nome||r.conferente||'').substring(0,30),M+2,y+10);T('Turno: '+(ck.turno||''),M+2,y+20);T('DRT: '+(cf.drt||''),M+2,y+30);
+d.setFontSize(7);T(d.splitTextToSize('Declaro que acompanhei a conferência da carga, e que o veículo apresenta condições adequadas e seguras para o transporte rodoviário.',90),M+97,y+4);
+if(r.ass_mot){try{d.addImage(r.ass_mot,'PNG',M+100,y+11,40,13);}catch(e){}}
+d.setFontSize(9);T('Assinatura:',M+97,y+27);d.line(M+115,y+27.8,R-3,y+27.8);T(String(r.motorista||a.motorista||'').substring(0,34),M+97,y+33);}
+
+function cfRender(){try{_cfRender();}catch(e){console.error(e);}try{cfPainel();}catch(e){console.error(e);}}
 
 function _cfRender(){const adm=false;
 const f=cfFilaLista();const sem=obterDados().filter(a=>a.status==='Chegou'&&!cfMatch(a).length).length;
 cfFilaInfo.innerText=f.length+' veículo(s) na fila'+(adm&&sem?' • '+sem+' chegou(aram) sem PDF do pedido':'')+'. Ordem: horário agendado, depois horário de chegada.';
-cfFila.innerHTML=f.map((a,i)=>{const r=CF.rom.find(x=>x.protocolo===a.protocolo);const em=r&&r.status==='Em conferência';
-return `<tr><td><button class="btn btn-green btn-small" onclick="cfAbrir('${a.protocolo}')">${em?'Continuar':'Conferir'}</button></td><td>${i+1}</td><td>${a.protocolo}</td><td>${a.transportadora}</td><td>${a.motorista||''}</td><td>${a.placa||''}</td><td>${a.data} ${a.horario}</td><td>${_cfD(a.chegada)}</td><td>${a.pedido}</td><td>${em?'Em conferência ('+r.conferente+')':'Aguardando'}</td></tr>`;}).join('')||'<tr><td colspan="10">Fila vazia.</td></tr>';
+const _pl=cfPlano();cfFila.innerHTML=f.map((a,i)=>{const r=CF.rom.find(x=>x.protocolo===a.protocolo);const em=r&&r.status==='Em conferência';const pode=cfPodeAbrir(a);const dn=_pl.dono[a.protocolo];const dc=dn?(CF.conf||[]).find(c=>c.usuario===dn):null;
+return `<tr><td>${pode?`<button class="btn btn-green btn-small" onclick="cfAbrir('${a.protocolo}')">${em?'Continuar':'Conferir'}</button>`:'<button class="btn btn-gray btn-small" disabled>Reservada</button>'}</td><td><strong>${cfSenha(a.protocolo)}</strong></td><td>${cfRapido(a)?'Rápido':'Normal'}</td><td>${a.protocolo}</td><td>${a.transportadora}</td><td>${a.motorista||''}</td><td>${a.placa||''}</td><td>${a.data} ${a.horario}</td><td>${_cfD(a.chegada)}</td><td>${a.pedido}</td><td>${em?'Em conferência ('+r.conferente+')':(dc?'Aguardando • reservada: '+(dc.nome||dc.usuario):'Aguardando')}</td></tr>`;}).join('')||'<tr><td colspan="12">Fila vazia.</td></tr>';
 if(CF.sel)cfRomRender();}
 
 async function cfAbrir(prot){const a=cfAg(prot);let r=CF.rom.find(x=>x.protocolo===prot);const nome=sessionStorage.getItem('wheaton_conferente')||'Administrador';
 if(r&&r.status==='Em conferência'&&r.conferente!==nome&&obterPerfil()!=='admin')return alert('Em conferência por '+r.conferente+'.');
-if(!r){const ps=cfMatch(a);r={protocolo:prot,cargas:ps.map(p=>p.carga).join(', '),itens:ps.flatMap(p=>p.itens.map(i=>({...i,carga:p.carga,ok:null,obs:''}))),status:'Em conferência',conferente:nome,inicio:new Date().toISOString(),motorista:a.motorista||'',exportado:false};
+if(!r&&!cfPodeAbrir(a))return alert(cfMsgReserva(a));
+if(!r){const ps=cfMatch(a);r={protocolo:prot,cargas:ps.map(p=>p.carga).join(', '),itens:ps.flatMap(p=>p.itens.map(i=>({...i,carga:p.carga,ok:null,obs:''}))),status:'Em conferência',conferente:nome,inicio:new Date().toISOString(),motorista:a.motorista||'',exportado:false,checklist:{senha:cfSenha(prot),ok:false,itens:{},ocorrencia:''}};
 if(!await cfSave('conf_romaneios',r,'protocolo'))return;CF.rom.push(r);}CF.sel=prot;CF.sig={};cfRomRender();cfRom.scrollIntoView({behavior:'smooth'});}
 
 function cfRomRender(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r){cfRom.style.display='none';return;}cfRom.style.display='block';
@@ -1229,7 +1362,8 @@ const carreta=r.carreta!=null?r.carreta:'';
 const dataConf=r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):'';
 const ok=r.itens.filter(i=>i.ok!==null).length;
 const campo=(rot,val,extra)=>`<div class="form-group" style="margin:0"><label>${rot}</label><input ${extra||'readonly'} value="${e(val)}" ${extra?'':'style="background:#f3f5f8"'}></div>`;
-cfRom.innerHTML=`<div class="card-header"><h2>Romaneio ${e(r.protocolo)} — Pedido(s) ${e(r.cargas)}</h2><p>${ok}/${r.itens.length} itens conferidos</p></div><div class="card-body">
+const ck=r.checklist||{};if(!ck.ok){cfChecklistRender(r,a,pdf,e);return;}
+cfRom.innerHTML=`<div class="card-header"><h2>Romaneio ${e(r.protocolo)} — Pedido(s) ${e(r.cargas)}</h2><p>${ok}/${r.itens.length} itens conferidos • Senha ${e(ck.senha||'')} • Check-list concluído (doca ${e(ck.doca||'-')})</p></div><div class="card-body">
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:18px">
 <div class="form-group" style="margin:0"><label>Nome do motorista</label><input id="cfMot" value="${e(r.motorista||a.motorista||'')}" onchange="cfCab('motorista',this.value)"></div>
 ${campo('Protocolo',r.protocolo)}
@@ -1246,6 +1380,7 @@ ${campo('Nome do conferente',r.conferente)}
 ${campo('Data',dataConf)}
 ${campo('Início da conferência',_cfD(r.inicio))}
 ${campo('Fim da conferência',r.fim?_cfD(r.fim):'Em andamento')}
+<div class="form-group" style="margin:0"><label>Nº do lacre aplicado</label><input value="${e(ck.lacre||'')}" onchange="cfCkCampo('lacre',this.value)"></div>
 </div>
 <div class="form-group" style="max-width:360px;margin-bottom:12px"><label>Ler / digitar nº do pallet</label><input id="cfScan" placeholder="Pallet" onkeydown="if(event.key==='Enter')cfScanOk(this)"></div>
 <div class="table-wrapper"><table><thead><tr><th>Conferir</th><th>#</th><th>Pedido</th><th>Pallet</th><th>Produto</th><th>Observação</th></tr></thead><tbody>${r.itens.map((i,n)=>`<tr style="${i.ok===true?'background:#e9f7ef':i.ok===false?'background:#ffebee':''}">
@@ -1253,7 +1388,7 @@ ${campo('Fim da conferência',r.fim?_cfD(r.fim):'Em andamento')}
 <td>${n+1}</td><td>${e(i.carga)}</td><td>${e(i.pallet)}${i.adicionado?'<br><small style="color:#1565c0;font-weight:700">adicionado na conferência</small>':''}${i.pallet_orig?`<br><small style="color:#c86b00;font-weight:700">trocado (antes: ${e(i.pallet_orig)})</small>`:''}</td><td>${e(i.produto)}${i.descricao?`<br><small style="color:#6b7785">${e(i.descricao)}</small>`:''}</td>
 <td><input value="${e(i.obs||'')}" onchange="cfObs(${n},this.value)" style="min-height:32px;padding:6px"></td></tr>`).join('')}</tbody></table></div>
 <div class="grid" style="margin-top:18px"><div class="col-6 form-group"><label>Assinatura do motorista</label><canvas id="cfSigMot" width="420" height="140" style="border:1px solid var(--border);border-radius:5px;touch-action:none;max-width:100%"></canvas><button class="btn btn-gray btn-small" style="margin-top:6px;width:90px" onclick="cfLimpa('cfSigMot')">Limpar</button></div></div>
-<div class="actions"><button class="btn btn-gray" onclick="CF.sel=null;cfRomRender()">Fechar</button><button class="btn btn-blue" onclick="cfFinalizar()">Finalizar e assinar romaneio</button></div></div>`;
+<div class="actions"><button class="btn btn-gray" onclick="CF.sel=null;cfRomRender()">Fechar</button><button class="btn btn-gray" onclick="cfCkEditar()">Editar check-list</button><button class="btn btn-blue" onclick="cfFinalizar()">Finalizar e assinar romaneio</button></div></div>`;
 ['cfSigMot'].forEach(cfDesenho);}
 
 function cfDesenho(id){const c=document.getElementById(id),x=c.getContext('2d');let d=false;x.lineWidth=2.2;x.lineCap='round';
@@ -1290,16 +1425,16 @@ const cabPag=carga=>{try{d.addImage(CF_LOGO,'PNG',M,7,16*CF_LOGO_R,16);}catch(e)
  d.setLineWidth(0.3);d.line(M-2,28,R+2,28);};
 const cols={prod:M+1,desc:M+40,pal:M+128,res:M+152,sep:M+170,udm:M+175};
 const cabTab=y=>{B();d.setFontSize(8);T('Produto',cols.prod,y);T('Descrição',cols.desc,y);T('Pallet',cols.pal,y,{align:'right'});T('Qtd RES',cols.res,y,{align:'right'});T('Qtd SEP',cols.sep,y,{align:'right'});T('UDM',cols.udm,y);d.setLineWidth(0.2);d.line(M,y+1.5,R,y+1.5);N();};
-const fmt=v=>Number(v).toFixed(2);let y=0,pg=0,primeira=true;
+const fmt=v=>Number(v).toFixed(2);let y=0,pg=0,primeira=true;const temCk=!!(r.checklist&&r.checklist.ok);if(temCk){cfPdfCheck(d,r,a);primeira=false;}
 cargas.forEach((carga,k)=>{
  const pd=CF.pdfs.find(p=>String(p.carga)===carga)||{};
  let its=r.itens.filter(i=>String(i.carga)===carga);if(!its.length&&cargas.length===1)its=r.itens.slice();
  const ref=(pd.itens||[]).find(i=>i.produto)||its.find(i=>i.produto)||{};
  if(!primeira)d.addPage();primeira=false;cabPag(carga);
- d.setFontSize(9);B();T('Zona de Entrega: '+(a.transportadora||pd.transportadora||''),M+2,36);T('Doca: '+(r.doca||''),R-2,36,{align:'right'});
+ d.setFontSize(9);B();T('Zona de Entrega: '+(a.transportadora||pd.transportadora||''),M+2,36);
  d.setLineWidth(0.3);d.rect(M,39,W,30);
  T('Nome: '+(pd.cliente||a.cliente||''),M+3,45);T('Cidade: '+(pd.cidade||''),M+3,50);T('UF: '+(pd.uf||''),M+60,50);
- T('N° Coleta:',M+95,48);d.rect(M+113,42,35,8);T('Data:',M+150,48);d.rect(M+160,42,28,8);
+ 
  d.line(M,52,R,52);const cw=[28,38,34,44,46];let cx=M;
  const hd=['Cliente','Pedido','Itens','Cubagem (L)','Peso Kg'];
  const vl=[pd.cliente_cod||'',carga,String(its.length),pd.cubagem?fmt(pd.cubagem):'',pd.peso?fmt(pd.peso):''];
@@ -1332,7 +1467,7 @@ cargas.forEach((carga,k)=>{
   rot('QTDE. NFS: (',M+3,y);T(r.nota_fiscal?'1':'',M+29,y);rot(')',M+36,y);rot('N° NFS:',M+42,y);ln(M+60,R-4,y);T(r.nota_fiscal||'',M+62,y-0.5);y+=9;
   ln(M+8,R-4,y);y+=9;ln(M+8,R-4,y);}
 });
-const tp=d.getNumberOfPages();for(let p=1;p<=tp;p++){d.setPage(p);N();d.setFontSize(8);T('Página: '+p+' de '+tp,R,23,{align:'right'});}
+const off=temCk?1:0,tp=d.getNumberOfPages();for(let p=1+off;p<=tp;p++){d.setPage(p);N();d.setFontSize(8);T('Página: '+(p-off)+' de '+(tp-off),R,23,{align:'right'});}
 return d;}
 
 async function _cfGravaPasta(r){const fh=await CF.dir.getFileHandle('Romaneio_'+r.protocolo+'.pdf',{create:true});const w=await fh.createWritable();await w.write(cfPdf(r).output('blob'));await w.close();r.exportado=true;await cfSave('conf_romaneios',r,'protocolo');}
@@ -1341,6 +1476,7 @@ async function cfFinalizar(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(r.i
 const mot=cfMot.value.trim();r.cavalo=cfCavalo.value.trim();r.carreta=cfCarreta.value.trim();if(!mot)return alert('Informe o nome do motorista.');if(!CF.sig.cfSigMot)return alert('É necessária a assinatura do motorista.');
 const bg=id=>{const c=document.getElementById(id),t=document.createElement('canvas');t.width=c.width;t.height=c.height;const x=t.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,t.width,t.height);x.drawImage(c,0,0);return t.toDataURL('image/png');};
 Object.assign(r,{motorista:mot,ass_mot:bg('cfSigMot'),status:'Finalizado',fim:new Date().toISOString()});
+if(r.checklist)r.checklist.termino=r.fim;
 if(!await cfSave('conf_romaneios',r,'protocolo'))return;
 alert(obterPerfil()==='admin'?'Romaneio finalizado e salvo. Informe a nota fiscal em Romaneios finalizados e gere o PDF.':'Romaneio finalizado e salvo. O PDF será gerado pelo administrador, após a inclusão da nota fiscal.');CF.sel=null;cfRomRender();cfRender();}
 
