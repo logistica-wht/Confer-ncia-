@@ -1203,7 +1203,7 @@ function cfFilaLista(){return cfAgs().filter(a=>a.status==='Chegou'||a.status===
 
 async function cfLogin(){const u=loginUser.value.trim().toLowerCase(),p=loginPass.value;const l=await cfGet('conferentes');const h=await _sha(p);
 const c=l.find(x=>x.usuario===u&&x.senha_hash===h);if(!c){loginError.innerText='Usuário ou senha de conferente inválidos.';return;}
-perfilAtual='conferente';sessionStorage.setItem('wheaton_auth','true');sessionStorage.setItem('wheaton_perfil','conferente');sessionStorage.setItem('wheaton_conferente',c.nome||c.usuario);sessionStorage.setItem('wheaton_conferente_user',c.usuario);setTimeout(cfBatida,0);
+perfilAtual='conferente';sessionStorage.setItem('wheaton_auth','true');sessionStorage.setItem('wheaton_perfil','conferente');sessionStorage.setItem('wheaton_conferente',c.nome||c.usuario);sessionStorage.setItem('wheaton_conferente_user',c.usuario);setTimeout(()=>{cfBatida();cfPatch('conferentes','usuario',c.usuario,{pausado:false});},0);
 loginOverlay.style.display='none';atualizarInterfacePorPerfil();mostrarPagina('conferencia');}
 
 function ehExpress(tipo,qtd){const q=parseInt(qtd,10)||0;if(q<=0)return false;return (tipo==='Palete'&&q<5)||(tipo==='Caixa'&&q<150);}
@@ -1233,7 +1233,7 @@ return extra+rest*seg*1000;}
 function cfPlano(){const conf=CF.conf||[],agora=Date.now(),eu=sessionStorage.getItem('wheaton_conferente_user');
 const roms=CF.rom||[];
 const emConf=c=>roms.find(x=>x.status==='Em conferência'&&x.conferente===cfNomeConf(c));
-const ativo=c=>!!emConf(c)||c.usuario===eu||(c.visto_em&&agora-new Date(c.visto_em).getTime()<120000);
+const ativo=c=>!c.pausado&&(!!emConf(c)||c.usuario===eu||(c.visto_em&&agora-new Date(c.visto_em).getTime()<1800000));
 const ultFim=c=>roms.filter(x=>x.status==='Finalizado'&&x.conferente===cfNomeConf(c)).map(x=>String(x.fim||'')).sort().pop()||'';
 const lista=conf.map(c=>{const r=emConf(c);return {c,online:ativo(c),r,eta:r?cfEta(r)+1:0};});
 const ordena=l=>l.slice().sort((x,y)=>x.eta-y.eta||x.ult.localeCompare(y.ult)||cfNomeConf(x.c).localeCompare(cfNomeConf(y.c)));
@@ -1246,6 +1246,23 @@ const aloca=(cs,fl)=>ordena(cs).forEach((o,i)=>{if(fl[i]){atrib[o.c.usuario]=fl[
 aloca(rapOn,rapFila);aloca(norOn,norFila);
 return {lista,atrib,dono,rapOn:rapOn.length>0};}
 
+async function cfTransferir(prot){if(obterPerfil()!=='admin')return alert('Somente o administrador pode transferir.');
+const r=CF.rom.find(x=>x.protocolo===prot);if(!r||r.status!=='Em conferência')return alert('Protocolo não está em conferência.');
+const a=cfAg(prot)||{};CF.conf=await cfGet('conferentes');const p=cfPlano();
+const rapLane=cfRapido(a)&&p.rapOn;
+const cand=p.lista.filter(o=>o.online&&!o.r&&cfNomeConf(o.c)!==r.conferente&&(rapLane?!!o.c.rapido:!o.c.rapido))
+ .sort((x,y)=>x.ult.localeCompare(y.ult)||cfNomeConf(x.c).localeCompare(cfNomeConf(y.c)));
+if(!cand.length)return alert('Nenhum conferente disponível agora para receber este protocolo.');
+const novo=cfNomeConf(cand[0].c);
+if(!confirm('Transferir o protocolo '+prot+' de '+r.conferente+' para '+novo+'?'))return;
+const ck=r.checklist=r.checklist||{itens:{}};ck.iniciado_por=ck.iniciado_por||r.conferente;
+ck.transferencias=(ck.transferencias||[]).concat([{de:r.conferente,para:novo,em:new Date().toISOString()}]);
+r.conferente=novo;if(!await cfSave('conf_romaneios',r,'protocolo'))return;
+CF.rom=await cfGet('conf_romaneios');cfRender();
+if(typeof cfMsg!=='undefined'&&cfMsg){cfMsg.style.display='block';cfMsg.innerText='Protocolo '+prot+' transferido para '+novo+'.';}}
+setInterval(async()=>{try{if(obterPerfil()!=='conferente'||!CF.sel)return;const nome=sessionStorage.getItem('wheaton_conferente');
+const nr=(await cfGet('conf_romaneios')).find(x=>x.protocolo===CF.sel);if(nr&&nr.conferente!==nome){const prot=CF.sel;CF.sel=null;await cfCarregar();cfRomRender();alert('O protocolo '+prot+' foi transferido para '+nr.conferente+'.');}}catch(e){}},10000);
+
 function cfPodeAbrir(a){if(obterPerfil()==='admin')return true;const r=(CF.rom||[]).find(x=>x.protocolo===a.protocolo);if(r&&r.status==='Em conferência')return true;
 return cfPlano().dono[a.protocolo]===sessionStorage.getItem('wheaton_conferente_user');}
 function cfMsgReserva(a){const p=cfPlano(),u=p.dono[a.protocolo];const s=cfSenha(a.protocolo);
@@ -1254,6 +1271,8 @@ return 'A senha '+s+' ainda não está reservada para você. Aguarde a sua senha
 
 async function cfToggleRapido(u){for(const c of CF.conf||[]){const v=(c.usuario===u)&&!c.rapido;if(!!c.rapido!==v)await cfPatch('conferentes','usuario',c.usuario,{rapido:v});}
 CF.conf=await cfGet('conferentes');cfRender();}
+
+async function cfSetPausa(u,v){const ok=await cfPatch('conferentes','usuario',u,{pausado:v});if(!ok)return alert('Não foi possível alterar o status. Rode o SQL atualizado no Supabase (coluna pausado).');CF.conf=await cfGet('conferentes');cfRender();}
 
 function cfPainel(){const el=document.getElementById('cfSenhaCard');if(!el)return;
 const E=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1266,11 +1285,13 @@ if(me&&me.r){h+='<div><div style="font-size:12px;color:#6b7785">Em conferência<
  if(ag)h+='<div style="min-width:220px"><div style="font-size:12px;color:#6b7785">Próxima senha reservada para você</div><div style="font-size:24px;font-weight:800;color:#1565c0">'+E(cfSenha(prot))+'</div><small>'+E(ag.placa||'')+' • '+E(ag.transportadora||'')+'</small></div>';}
 else if(ag){h+='<div><div style="font-size:12px;color:#6b7785">Sua senha'+(me&&me.c.rapido?' • caixa rápido':'')+'</div><div style="font-size:34px;font-weight:800;color:#1565c0">'+E(cfSenha(prot))+'</div></div>';
  h+='<div style="flex:1;min-width:200px"><strong>'+E(ag.placa||'')+' • '+E(ag.transportadora||'')+'</strong><br><small>'+E(ag.motorista||'')+'</small></div><button class="btn btn-green" onclick="cfAbrir(\''+E(prot)+'\')">Iniciar conferência</button>';}
+else if(me&&me.c.pausado)h+='<div><strong>Você está offline.</strong><br><small>Não recebe novas senhas.</small></div>';
 else h+='<div><strong>Sem veículo aguardando para você.</strong><br><small>'+(me&&me.c.rapido?'Caixa rápido':'Atendimento normal')+'</small></div>';
-el.innerHTML='<div class="card" style="margin-bottom:16px">'+h+'</div></div>';return;}
+const _p=!!(me&&me.c.pausado);h+='<div style="margin-left:auto"><button class="btn '+(_p?'btn-green':'btn-gray')+'" onclick="cfSetPausa(\''+E(u)+'\','+(_p?'false':'true')+')">'+(_p?'Ficar online':'Ficar offline')+'</button></div>';
+el.innerHTML='<div class="card" style="margin-bottom:16px">'+h+'</div>';return;}
 const rows=p.lista.map(o=>{const prot=p.atrib[o.c.usuario];
- const sit=o.r?'Em conferência '+E(cfSenha(o.r.protocolo))+' • libera em ~'+min(o.eta):(o.online?'Disponível':'Offline');
- return '<tr><td>'+E(cfNomeConf(o.c))+'</td><td>'+(o.c.rapido?'Caixa rápido':'Normal')+'</td><td>'+sit+'</td><td>'+(prot?'<strong>'+E(cfSenha(prot))+'</strong>':'-')+'</td><td><button class="btn btn-gray btn-small" onclick="cfToggleRapido(\''+E(o.c.usuario)+'\')">'+(o.c.rapido?'Tirar do caixa rápido':'Definir caixa rápido')+'</button></td></tr>';}).join('')||'<tr><td colspan="5">Nenhum conferente cadastrado.</td></tr>';
+ const sit=o.r?'Em conferência '+E(cfSenha(o.r.protocolo))+' • libera em ~'+min(o.eta):(o.online?'Disponível':(o.c.pausado?'Offline (manual)':'Offline'));
+ return '<tr><td>'+E(cfNomeConf(o.c))+'</td><td>'+(o.c.rapido?'Caixa rápido':'Normal')+'</td><td>'+sit+'</td><td>'+(prot?'<strong>'+E(cfSenha(prot))+'</strong>':'-')+'</td><td><button class="btn btn-gray btn-small" onclick="cfToggleRapido(\''+E(o.c.usuario)+'\')">'+(o.c.rapido?'Tirar do caixa rápido':'Definir caixa rápido')+'</button> <button class="btn btn-gray btn-small" onclick="cfSetPausa(\''+E(o.c.usuario)+'\','+(o.c.pausado?'false':'true')+')">'+(o.c.pausado?'Colocar online':'Colocar offline')+'</button></td></tr>';}).join('')||'<tr><td colspan="5">Nenhum conferente cadastrado.</td></tr>';
 el.innerHTML='<div class="card" style="margin-bottom:16px"><div class="card-header"><h2>Senhas e conferentes</h2><p>A próxima senha vai para o conferente que ficar livre primeiro. Embarque rápido: menos de 5 paletes ou 150 caixas.</p></div><div class="card-body table-wrapper"><table><thead><tr><th>Conferente</th><th>Faixa</th><th>Situação</th><th>Próxima senha</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';}
 
 const CF_CK=['1. O material a ser carregado está em perfeito estado (isento de sujidades, insetos, avarias)?','2. O assoalho do veículo apresenta-se limpo, seco, sem odores e sem furos?','3. As paredes e o teto do baú estão ISENTOS de furos, frestas ou infiltrações?','4. O baú está ISENTO de cargas terceiras que possam contaminar ou danificar o produto (químicos, cheiro forte)?','5. Os paletes estão com cantoneiras instaladas e devidamente stretchados em máquina?','6. O registro fotográfico do carregamento foi realizado conforme o padrão ?','7. As últimas 4 pilhas de paletes foram devidamente remontadas e arqueadas?','8. Para clientes específicos (Natura): As etiquetas possuem validade exigida de 10 anos?','9. Controle de Paletes de Entrega: GEE (Vermelho)'];
@@ -1332,7 +1353,7 @@ const nfs=String(r.nota_fiscal||'').split(/[\s,;]+/).filter(Boolean).length;cons
 cell('Início:',fm(r.inicio),M,y,34,10);cell('Término:',fm(r.fim),M+34,y,34,10);cell('Qtd. NFs:',nfs||ck.qtd_nfs||'',M+68,y,22,10);cell('Qtd. Paletes:',r.itens.length,M+90,y,32,10);cell('Qtd. Caixas:',cx2,M+122,y,32,10);cell('Doca de Carga:',ck.doca,M+154,y,36,10);y+=10;
 cell('Numeração do Lacre Aplicado:',ck.lacre,M,y,W,10);y+=10;
 bx(M,y,95,7,1);bx(M+95,y,95,7,1);B();d.setFontSize(8);T('Conferente / Operador Responsável',M+2,y+4.8);T('Assinatura do Motorista (Legível)',M+97,y+4.8);y+=7;
-bx(M,y,95,36);bx(M+95,y,95,36);N();d.setFontSize(9);T('Nome: '+String(cf.nome||r.conferente||'').substring(0,30),M+2,y+10);T('Turno: '+(ck.turno||''),M+2,y+20);T('DRT: '+(cf.drt||''),M+2,y+30);
+bx(M,y,95,36);bx(M+95,y,95,36);N();d.setFontSize(9);T('Nome: '+String(cf.nome||r.conferente||'').substring(0,30),M+2,y+10);T('Turno: '+(ck.turno||''),M+2,y+20);T('DRT: '+(cf.drt||''),M+2,y+30);if(ck.iniciado_por&&ck.iniciado_por!==r.conferente){d.setFontSize(7);T('Iniciado por: '+ck.iniciado_por,M+2,y+34.5);}
 d.setFontSize(7);T(d.splitTextToSize('Declaro que acompanhei a conferência da carga, e que o veículo apresenta condições adequadas e seguras para o transporte rodoviário.',90),M+97,y+4);
 if(r.ass_mot){try{d.addImage(r.ass_mot,'PNG',M+100,y+11,40,13);}catch(e){}}
 d.setFontSize(9);T('Assinatura:',M+97,y+27);d.line(M+115,y+27.8,R-3,y+27.8);T(String(r.motorista||a.motorista||'').substring(0,34),M+97,y+33);}
@@ -1343,7 +1364,7 @@ function _cfRender(){const adm=false;
 const f=cfFilaLista();const sem=obterDados().filter(a=>a.status==='Chegou'&&!cfMatch(a).length).length;
 cfFilaInfo.innerText=f.length+' veículo(s) na fila'+(adm&&sem?' • '+sem+' chegou(aram) sem PDF do pedido':'')+'. Ordem: horário agendado, depois horário de chegada.';
 const _pl=cfPlano();cfFila.innerHTML=f.map((a,i)=>{const r=CF.rom.find(x=>x.protocolo===a.protocolo);const em=r&&r.status==='Em conferência';const pode=cfPodeAbrir(a);const dn=_pl.dono[a.protocolo];const dc=dn?(CF.conf||[]).find(c=>c.usuario===dn):null;
-return `<tr><td>${pode?`<button class="btn btn-green btn-small" onclick="cfAbrir('${a.protocolo}')">${em?'Continuar':'Conferir'}</button>`:'<button class="btn btn-gray btn-small" disabled>Reservada</button>'}</td><td><strong>${cfSenha(a.protocolo)}</strong></td><td>${cfRapido(a)?'Rápido':'Normal'}</td><td>${a.protocolo}</td><td>${a.transportadora}</td><td>${a.motorista||''}</td><td>${a.placa||''}</td><td>${a.data} ${a.horario}</td><td>${_cfD(a.chegada)}</td><td>${a.pedido}</td><td>${em?'Em conferência ('+r.conferente+')':(dc?'Aguardando • reservada: '+(dc.nome||dc.usuario):'Aguardando')}</td></tr>`;}).join('')||'<tr><td colspan="12">Fila vazia.</td></tr>';
+return `<tr><td>${pode?`<button class="btn btn-green btn-small" onclick="cfAbrir('${a.protocolo}')">${em?'Continuar':'Conferir'}</button>`:'<button class="btn btn-gray btn-small" disabled>Reservada</button>'}${em&&obterPerfil()==='admin'?` <button class="btn btn-gray btn-small" onclick="cfTransferir('${a.protocolo}')">Transferir</button>`:''}</td><td><strong>${cfSenha(a.protocolo)}</strong></td><td>${cfRapido(a)?'Rápido':'Normal'}</td><td>${a.protocolo}</td><td>${a.transportadora}</td><td>${a.motorista||''}</td><td>${a.placa||''}</td><td>${a.data} ${a.horario}</td><td>${_cfD(a.chegada)}</td><td>${a.pedido}</td><td>${em?'Em conferência ('+r.conferente+')':(dc?'Aguardando • reservada: '+(dc.nome||dc.usuario):'Aguardando')}</td></tr>`;}).join('')||'<tr><td colspan="12">Fila vazia.</td></tr>';
 if(CF.sel)cfRomRender();}
 
 async function cfAbrir(prot){const a=cfAg(prot);let r=CF.rom.find(x=>x.protocolo===prot);const nome=sessionStorage.getItem('wheaton_conferente')||'Administrador';
