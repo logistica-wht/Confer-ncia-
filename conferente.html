@@ -1312,7 +1312,7 @@ ${ro('Transportadora',pdf.transportadora||a.transportadora||'')}${ro('Senha',ck.
 ${ed('Placa cavalo',cavalo,"cfCab('cavalo',this.value)")}${ed('Placa carreta',carreta,"cfCab('carreta',this.value)")}
 ${sel('Tipo de veículo',ck.tipo_veiculo||'',CF_VEIC,"cfCkCampo('tipo_veiculo',this.value)")}${sel('Carroceria',ck.carroceria||'',CF_CARR,"cfCkCampo('carroceria',this.value)")}
 ${ro('Cliente',pdf.cliente||a.cliente||'')}${ro('Motorista',r.motorista||a.motorista||'')}
-${ed('Certificado(s) de qualidade nº(s)',ck.cert||'',"cfCkCampo('cert',this.value)")}${ed('Doca de carga *',ck.doca||'',"cfCkCampo('doca',this.value)",'Ex.: DB-24')}
+${ed('Doca de carga *',ck.doca||'',"cfCkCampo('doca',this.value)",'Ex.: DB-24')}
 ${sel('Turno',ck.turno||'',['1º Turno','2º Turno','3º Turno'],"cfCkCampo('turno',this.value)")}
 </div>
 <div class="table-wrapper"><table><thead><tr><th>Itens de verificação / requisitos operacionais</th><th>SIM</th><th>NÃO</th><th>N/A</th></tr></thead><tbody>${CF_CK.map((t,n)=>`<tr><td>${e(t)}</td>${['SIM','NAO','NA'].map(v=>`<td style="text-align:center"><input type="radio" name="ck${n+1}" style="width:20px;height:20px" ${ck.itens[n+1]===v?'checked':''} onchange="cfCkItem(${n+1},'${v}')"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
@@ -1341,7 +1341,7 @@ const cell=(rot,val,x,yy,w,h)=>{bx(x,yy,w,h);B();d.setFontSize(7);T(rot,x+1.5,yy
 const dia=a.data?String(a.data).split('-').reverse().join('/'):'';
 cell('Transportadora:',a.transportadora||pdf.transportadora,M,y,90,10);cell('Senha:',ck.senha,M+90,y,25,10);cell('Agendamento:',dia+(a.horario?' '+a.horario:''),M+115,y,40,10);cell('Data da Coleta:',r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):'',M+155,y,35,10);y+=10;
 cell('Placa Cavalo:',r.cavalo!=null?r.cavalo:a.placa,M,y,45,10);cell('Placa Carreta:',r.carreta,M+45,y,45,10);cell('Tipo de Veículo / Carroceria:',[ck.tipo_veiculo,ck.carroceria].filter(Boolean).join(' / '),M+90,y,100,10);y+=10;
-cell('Cliente:',pdf.cliente||a.cliente,M,y,90,10);cell('Certificado(s) de Qualidade nº(s):',ck.cert,M+90,y,100,10);y+=10;
+cell('Cliente:',pdf.cliente||a.cliente,M,y,W,10);y+=10;
 cell('Motorista:',r.motorista||a.motorista,M,y,W,10);y+=10;
 bx(M,y,W,7,1);B();d.setFontSize(8);T('Itens de Verificação / Requisitos Operacionais',M+2,y+4.8);
 const cx=[R-36,R-24,R-12];['SIM','NÃO','N/A'].forEach((t,i)=>T(t,cx[i]+6,y+4.8,{align:'center'}));y+=7;

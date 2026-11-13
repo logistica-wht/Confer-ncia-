@@ -1,5 +1,5 @@
 // Service worker: abre o app rápido e funciona como PWA. Nunca guarda dados do Supabase.
-const CACHE = "wheaton-v2";
+const CACHE = "wheaton-v3";
 const ARQUIVOS = [
   "./", "./index.html", "./conferente.html", "./config.js",
   "./manifest.webmanifest", "./conferente.webmanifest",

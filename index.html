@@ -1726,7 +1726,7 @@ Ações
 <div class="col-4 form-group"><label>Transportadora (opcional)</label><input id="avTransp"></div>
 <div class="col-4 form-group"><label>&nbsp;</label><button class="btn btn-green" onclick="cfAddAvulsa()">Incluir na fila</button></div></div>
 <div class="table-wrapper" style="margin-top:12px"><table><thead><tr><th>Protocolo</th><th>Pedido</th><th>Cliente</th><th>Motorista</th><th>Placa</th><th>Situação</th><th></th></tr></thead><tbody id="cfAvul"></tbody></table></div></div></div>
-<div class="card"><div class="card-header"><h2>Romaneios finalizados</h2><p>Informe a nota fiscal e salve o PDF na pasta: o romaneio sai desta lista e passa a constar na planilha.</p></div><div class="card-body"><div class="actions" style="margin-bottom:12px"><button class="btn btn-green" onclick="cfPlanilha()">Gerar planilha Excel dos romaneios salvos</button></div><div class="table-wrapper"><table><thead><tr><th>Protocolo</th><th>Pedido(s)</th><th>Cliente</th><th>Motorista</th><th>Finalizado em</th><th>Nota fiscal</th><th></th></tr></thead><tbody id="cfFinal"></tbody></table></div></div></div>
+<div class="card"><div class="card-header"><h2>Romaneios finalizados</h2><p>Informe a nota fiscal e salve o PDF na pasta: o romaneio sai desta lista e passa a constar na planilha.</p></div><div class="card-body"><div class="actions" style="margin-bottom:12px"><button class="btn btn-green" onclick="cfPlanilha()">Gerar planilha Excel dos romaneios salvos</button></div><div class="table-wrapper"><table><thead><tr><th>Protocolo</th><th>Pedido(s)</th><th>Cliente</th><th>Motorista</th><th>Finalizado em</th><th>Nota fiscal</th><th>Certificado(s) de qualidade</th><th></th></tr></thead><tbody id="cfFinal"></tbody></table></div></div></div>
 </div>
 <div id="cfSenhaCard"></div>
 <div class="card"><div class="card-header"><h2>Fila de Conferência</h2><p id="cfFilaInfo"></p></div><div class="card-body table-wrapper"><table><thead><tr><th>Ação</th><th>Senha</th><th>Faixa</th><th>Protocolo</th><th>Transportadora</th><th>Motorista</th><th>Placa</th><th>Agendado</th><th>Chegada</th><th>Pedido(s)</th><th>Situação</th></tr></thead><tbody id="cfFila"></tbody></table></div></div>
@@ -4281,7 +4281,7 @@ const fb=document.getElementById('cfFinal');if(!fb)return;
 if(document.activeElement&&fb.contains(document.activeElement))return;
 const fin=CF.rom.filter(r=>r.status==='Finalizado'&&!(r.exportado&&String(r.nota_fiscal||'').trim())).sort((a,b)=>String(b.fim).localeCompare(String(a.fim)));
 fb.innerHTML=fin.map(r=>{const a=cfAg(r.protocolo);const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};const p=_cfE(r.protocolo);
-return `<tr><td>${p}</td><td>${_cfE(r.cargas)}</td><td>${_cfE(pdf.cliente||a.cliente||'')}</td><td>${_cfE(r.motorista)}</td><td>${_cfD(r.fim)}</td><td><input data-nf="${p}" value="${_cfE(r.nota_fiscal||'')}" placeholder="Nº da NF" style="min-height:32px;padding:6px;min-width:130px"></td><td style="white-space:nowrap"><button class="btn btn-gray btn-small" onclick="cfSalvarNF('${p}')">Salvar NF</button> <button class="btn btn-blue btn-small" onclick="cfGerarPdf('${p}')">${r.exportado?'Gerar PDF novamente':'Gerar PDF'}</button></td></tr>`;}).join('')||'<tr><td colspan="7">Nenhum romaneio finalizado.</td></tr>';}
+return `<tr><td>${p}</td><td>${_cfE(r.cargas)}</td><td>${_cfE(pdf.cliente||a.cliente||'')}</td><td>${_cfE(r.motorista)}</td><td>${_cfD(r.fim)}</td><td><input data-nf="${p}" value="${_cfE(r.nota_fiscal||'')}" placeholder="Nº da NF" style="min-height:32px;padding:6px;min-width:130px"></td><td><input data-cert="${p}" value="${_cfE(r.certificado||'')}" placeholder="Nº do certificado" style="min-height:32px;padding:6px;min-width:160px"></td><td style="white-space:nowrap"><button class="btn btn-gray btn-small" onclick="cfSalvarNF('${p}')">Salvar NF/certificado</button> <button class="btn btn-blue btn-small" onclick="cfGerarPdf('${p}')">${r.exportado?'Gerar PDF novamente':'Gerar PDF'}</button></td></tr>`;}).join('')||'<tr><td colspan="8">Nenhum romaneio finalizado.</td></tr>';}
 
 async function cfAddAvulsa(){const ped=avPedido.value.trim();if(!ped)return alert('Informe o pedido/carga (xxxxxx/xx).');
 const ps=cfMatch({pedido:ped});
@@ -4301,23 +4301,24 @@ async function cfRemoverAvulsa(prot){if(CF.rom.find(x=>x.protocolo===prot))retur
 if(!confirm('Remover a carga '+prot+' da fila?'))return;await cfDel('conf_avulsas','protocolo',prot);CF.avul=(CF.avul||[]).filter(v=>v.protocolo!==prot);cfRender();}
 
 function _cfNfInput(prot){return [...document.querySelectorAll('#cfFinal input')].find(x=>x.dataset.nf===prot);}
+function _cfCertInput(prot){return [...document.querySelectorAll('#cfFinal input')].find(x=>x.dataset.cert===prot);}
 
-async function cfSalvarNF(prot){const r=CF.rom.find(x=>x.protocolo===prot);if(!r)return;const i=_cfNfInput(prot);r.nota_fiscal=i?i.value.trim():(r.nota_fiscal||'');
-if(await cfSave('conf_romaneios',r,'protocolo')){cfMsg.style.display='block';cfMsg.innerText='Nota fiscal do romaneio '+prot+' salva.';}}
+async function cfSalvarNF(prot){const r=CF.rom.find(x=>x.protocolo===prot);if(!r)return;const i=_cfNfInput(prot);r.nota_fiscal=i?i.value.trim():(r.nota_fiscal||'');const ic=_cfCertInput(prot);r.certificado=ic?ic.value.trim():(r.certificado||'');
+if(await cfSave('conf_romaneios',r,'protocolo')){cfMsg.style.display='block';cfMsg.innerText='Nota fiscal e certificado de qualidade do romaneio '+prot+' salvos.';}}
 
 async function cfPlanilha(){if(typeof XLSX==='undefined')return alert('Biblioteca de planilha não carregada. Verifique a internet.');
 const sv=CF.rom.filter(r=>r.status==='Finalizado'&&r.exportado&&String(r.nota_fiscal||'').trim()).sort((a,b)=>String(a.fim).localeCompare(String(b.fim)));
 if(!sv.length)return alert('Ainda não há romaneios salvos na pasta com nota fiscal.');
 const linhas=sv.map(r=>{const a=cfAg(r.protocolo)||{};const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};
-return {'Protocolo':r.protocolo,'Cliente':pdf.cliente||a.cliente||'','Transportadora':a.transportadora||pdf.transportadora||'','Pedido':r.cargas||'','Nota fiscal':r.nota_fiscal||'','Quantidade conferida':r.itens.filter(i=>i.ok===true).length,'Conferente':r.conferente||'','Data':r.fim?new Date(r.fim).toLocaleDateString('pt-BR'):'','Iniciado por':(r.checklist&&r.checklist.iniciado_por)||''};});
-const ws=XLSX.utils.json_to_sheet(linhas);ws['!cols']=[14,34,28,22,18,20,22,12,22].map(w=>({wch:w}));
+return {'Protocolo':r.protocolo,'Cliente':pdf.cliente||a.cliente||'','Transportadora':a.transportadora||pdf.transportadora||'','Pedido':r.cargas||'','Nota fiscal':r.nota_fiscal||'','Certificado(s) de qualidade':r.certificado||'','Quantidade conferida':r.itens.filter(i=>i.ok===true).length,'Conferente':r.conferente||'','Data':r.fim?new Date(r.fim).toLocaleDateString('pt-BR'):'','Iniciado por':(r.checklist&&r.checklist.iniciado_por)||''};});
+const ws=XLSX.utils.json_to_sheet(linhas);ws['!cols']=[14,34,28,22,18,26,20,22,12,22].map(w=>({wch:w}));
 const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Romaneios');
 const h=new Date(),d=h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0');
 XLSX.writeFile(wb,'Romaneios_salvos_'+d+'.xlsx');cfMsg.style.display='block';cfMsg.innerText='Planilha gerada com '+linhas.length+' romaneio(s) salvo(s).';}
 
 async function cfGerarPdf(prot){const r=CF.rom.find(x=>x.protocolo===prot);if(!r)return;const i=_cfNfInput(prot);const nf=(i?i.value:(r.nota_fiscal||'')).trim();
 if(!nf&&!confirm('Nenhuma nota fiscal foi informada para o romaneio '+prot+'.\nGerar o PDF mesmo assim?'))return;
-r.nota_fiscal=nf;CF.conf=await cfGet('conferentes');await cfSave('conf_romaneios',r,'protocolo');
+r.nota_fiscal=nf;const ic2=_cfCertInput(prot);r.certificado=ic2?ic2.value.trim():(r.certificado||'');CF.conf=await cfGet('conferentes');await cfSave('conf_romaneios',r,'protocolo');
 try{if(CF.dir)await _cfGravaPasta(r);else cfPdf(r).save('Romaneio_'+prot+'.pdf');}catch(e){cfPdf(r).save('Romaneio_'+prot+'.pdf');}
 cfMsg.style.display='block';cfMsg.innerText='PDF do romaneio '+prot+' gerado'+(nf?' com a nota fiscal '+nf:'')+'.';if(document.activeElement)document.activeElement.blur();cfRender();}
 
@@ -4454,7 +4455,7 @@ ${ro('Transportadora',pdf.transportadora||a.transportadora||'')}${ro('Senha',ck.
 ${ed('Placa cavalo',cavalo,"cfCab('cavalo',this.value)")}${ed('Placa carreta',carreta,"cfCab('carreta',this.value)")}
 ${sel('Tipo de veículo',ck.tipo_veiculo||'',CF_VEIC,"cfCkCampo('tipo_veiculo',this.value)")}${sel('Carroceria',ck.carroceria||'',CF_CARR,"cfCkCampo('carroceria',this.value)")}
 ${ro('Cliente',pdf.cliente||a.cliente||'')}${ro('Motorista',r.motorista||a.motorista||'')}
-${ed('Certificado(s) de qualidade nº(s)',ck.cert||'',"cfCkCampo('cert',this.value)")}${ed('Doca de carga *',ck.doca||'',"cfCkCampo('doca',this.value)",'Ex.: DB-24')}
+${ed('Doca de carga *',ck.doca||'',"cfCkCampo('doca',this.value)",'Ex.: DB-24')}
 ${sel('Turno',ck.turno||'',['1º Turno','2º Turno','3º Turno'],"cfCkCampo('turno',this.value)")}
 </div>
 <div class="table-wrapper"><table><thead><tr><th>Itens de verificação / requisitos operacionais</th><th>SIM</th><th>NÃO</th><th>N/A</th></tr></thead><tbody>${CF_CK.map((t,n)=>`<tr><td>${e(t)}</td>${['SIM','NAO','NA'].map(v=>`<td style="text-align:center"><input type="radio" name="ck${n+1}" style="width:20px;height:20px" ${ck.itens[n+1]===v?'checked':''} onchange="cfCkItem(${n+1},'${v}')"></td>`).join('')}</tr>`).join('')}</tbody></table></div>
@@ -4483,7 +4484,7 @@ const cell=(rot,val,x,yy,w,h)=>{bx(x,yy,w,h);B();d.setFontSize(7);T(rot,x+1.5,yy
 const dia=a.data?String(a.data).split('-').reverse().join('/'):'';
 cell('Transportadora:',a.transportadora||pdf.transportadora,M,y,90,10);cell('Senha:',ck.senha,M+90,y,25,10);cell('Agendamento:',dia+(a.horario?' '+a.horario:''),M+115,y,40,10);cell('Data da Coleta:',r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):'',M+155,y,35,10);y+=10;
 cell('Placa Cavalo:',r.cavalo!=null?r.cavalo:a.placa,M,y,45,10);cell('Placa Carreta:',r.carreta,M+45,y,45,10);cell('Tipo de Veículo / Carroceria:',[ck.tipo_veiculo,ck.carroceria].filter(Boolean).join(' / '),M+90,y,100,10);y+=10;
-cell('Cliente:',pdf.cliente||a.cliente,M,y,90,10);cell('Certificado(s) de Qualidade nº(s):',ck.cert,M+90,y,100,10);y+=10;
+cell('Cliente:',pdf.cliente||a.cliente,M,y,W,10);y+=10;
 cell('Motorista:',r.motorista||a.motorista,M,y,W,10);y+=10;
 bx(M,y,W,7,1);B();d.setFontSize(8);T('Itens de Verificação / Requisitos Operacionais',M+2,y+4.8);
 const cx=[R-36,R-24,R-12];['SIM','NÃO','N/A'].forEach((t,i)=>T(t,cx[i]+6,y+4.8,{align:'center'}));y+=7;
@@ -4630,7 +4631,7 @@ cargas.forEach((carga,k)=>{
   rot('DATA EXP:',M+98,y);T(r.inicio?new Date(r.inicio).toLocaleDateString('pt-BR'):'____/____/______',M+120,y);rot('DRT:',M+152,y);ln(M+160,R-4,y);T(cf.drt||'',M+162,y-0.5);y+=9;
   rot('SEPARADOR:',M+5,y);ln(M+34,M+95,y);rot('DATA SEP:',M+98,y);T('____/____/______',M+120,y);rot('DRT:',M+152,y);ln(M+160,R-4,y);y+=9;
   rot('QTDE. NFS: (',M+3,y);T(r.nota_fiscal?'1':'',M+29,y);rot(')',M+36,y);rot('N° NFS:',M+42,y);ln(M+60,R-4,y);T(r.nota_fiscal||'',M+62,y-0.5);y+=9;
-  ln(M+8,R-4,y);y+=9;ln(M+8,R-4,y);}
+  rot('CERT. DE QUALIDADE N°:',M+3,y);ln(M+52,R-4,y);T(String(r.certificado||'').substring(0,70),M+54,y-0.5);y+=9;ln(M+8,R-4,y);}
 });
 const off=temCk?1:0,tp=d.getNumberOfPages();for(let p=1+off;p<=tp;p++){d.setPage(p);N();d.setFontSize(8);T('Página: '+(p-off)+' de '+(tp-off),R,23,{align:'right'});}
 return d;}
