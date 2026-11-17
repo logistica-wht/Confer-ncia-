@@ -1,5 +1,5 @@
 // Service worker: abre o app rápido e funciona como PWA. Nunca guarda dados do Supabase.
-const CACHE = "wheaton-v4";
+const CACHE = "wheaton-v5";
 const ARQUIVOS = [
   "./", "./index.html", "./conferente.html", "./config.js",
   "./manifest.webmanifest", "./conferente.webmanifest",
@@ -25,7 +25,8 @@ self.addEventListener("fetch", e => {
   if (url.hostname.endsWith("supabase.co")) return;          // dados sempre ao vivo
   e.respondWith(
     fetch(req).then(res => {
-      if (res.ok && (url.origin === location.origin || url.hostname.includes("cdn"))) {
+      const fonte = url.hostname.endsWith("googleapis.com") || url.hostname.endsWith("gstatic.com"); // fonte do novo visual
+      if ((res.ok && (url.origin === location.origin || url.hostname.includes("cdn"))) || (fonte && (res.ok || res.type === "opaque"))) {
         const copia = res.clone();
         caches.open(CACHE).then(c => c.put(req, copia));
       }
