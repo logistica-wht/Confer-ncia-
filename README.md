@@ -1,31 +1,42 @@
-# Wheaton Brasil Vidros — Portal de Agendamento e Conferência Digital
+# Wheaton • Portal de Agendamento + Conferência Digital
 
-Site estático (HTML + JavaScript) ligado ao Supabase. Hospedagem: GitHub Pages.
+Dois sites estáticos ligados ao **mesmo banco Supabase**:
 
-## Arquivos
+| Arquivo | Quem usa | O que faz |
+|---|---|---|
+| `index.html` | Transportadora e Administrador | Agendamento, fila, administração da conferência, romaneios finalizados (NF + certificado) e PDF |
+| `conferente.html` | Conferentes | Login, senha da fila, check-list de embarque, romaneio digital e assinatura do motorista |
+| `config.js` | — | URL e chave **publishable** do Supabase |
+| `supabase/conferencia_supabase.sql` | — | Cria todas as tabelas e permissões |
+| `manifest.webmanifest`, `conferente.webmanifest`, `sw.js`, `icon-*.png` | — | Instalação como aplicativo (PWA) |
+| `.github/workflows/pages.yml` | — | Publica automaticamente no GitHub Pages |
 
-| Arquivo | Função |
-|---|---|
-| `index.html` | Portal de Agendamento + administração da conferência (transportadora e administrador) |
-| `conferente.html` | Conferência digital — acesso exclusivo dos conferentes |
-| `config.js` | URL e chave publishable do Supabase |
-| `conferencia_supabase.sql` | Cria as tabelas e permissões no Supabase |
-| `manifest.webmanifest`, `conferente.webmanifest`, `sw.js`, `icon-*.png` | Instalação como aplicativo (PWA) |
+## Passo 1 — Supabase (banco)
+1. Abra o projeto `https://kdgprglbjpegeofgpmcs.supabase.co` → **SQL Editor** → **New query**.
+2. Cole todo o conteúdo de `supabase/conferencia_supabase.sql` e clique em **Run**.
+3. Em **Table Editor** confira as tabelas: `agendamentos`, `conf_pdfs`, `conf_romaneios`, `conf_avulsas`, `conferentes`.
 
-## Como publicar
+## Passo 2 — GitHub
+1. Crie um repositório (ex.: `portal-wheaton`) e envie **todos** os arquivos desta pasta (inclusive `.github` e `.nojekyll`).
+   - Pelo site: *Add file → Upload files* (arraste a pasta; para `.github` use o Git ou crie o arquivo `.github/workflows/pages.yml` manualmente).
+   - Pelo terminal:
+     ```bash
+     git init && git add -A && git commit -m "Portal Wheaton"
+     git branch -M main
+     git remote add origin https://github.com/SEU_USUARIO/portal-wheaton.git
+     git push -u origin main
+     ```
+2. No repositório: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+3. Aguarde a aba **Actions** ficar verde. Endereços:
+   - Portal: `https://SEU_USUARIO.github.io/portal-wheaton/`
+   - Conferente: `https://SEU_USUARIO.github.io/portal-wheaton/conferente.html`
 
-1. **Supabase** → SQL Editor → cole e execute `conferencia_supabase.sql`.
-2. **config.js** → troque `COLOQUE_AQUI_A_CHAVE_PUBLISHABLE` pela chave *publishable* do projeto
-   (Supabase → Project Settings → API Keys). Nunca use a chave *secret*.
-3. **GitHub** → crie o repositório e envie todos os arquivos desta pasta na raiz.
-4. **GitHub Pages** → Settings → Pages → Branch `main` / pasta `/ (root)` → Save.
-5. Endereços finais:
-   - `https://SEU-USUARIO.github.io/NOME-DO-REPOSITORIO/index.html`
-   - `https://SEU-USUARIO.github.io/NOME-DO-REPOSITORIO/conferente.html`
-6. No celular/tablet do conferente, abra `conferente.html` e use **Adicionar à tela inicial**.
+## Passo 3 — Primeiro uso
+1. Entre no portal como **Administrador** → aba de Conferência Digital → cadastre os **conferentes** (usuário, nome, DRT e senha).
+2. Importe os PDFs dos pedidos (Mapa de Preparação).
+3. No celular/tablet do conferente, abra o endereço do `conferente.html` e use **Adicionar à tela inicial** / **Instalar aplicativo**.
 
 ## Observações
-
-- Ao atualizar os arquivos, aumente `CACHE` em `sw.js` (ex.: `wheaton-v2`) para os aparelhos receberem a versão nova.
-- O login do administrador está definido dentro do `index.html`; como o código do site é público
-  no GitHub Pages, prefira repositório privado ou troque a senha antes de publicar.
+- A chave `sb_publishable_...` é pública por natureza. **Nunca** publique a chave `secret`/`service_role`.
+- O login de administrador e o de conferente são verificados no próprio navegador e as tabelas liberam acesso ao papel `anon`. Isso atende a um uso interno, mas qualquer pessoa com a URL e a chave consegue ler/gravar. Para endurecer, o próximo passo é migrar o login para o Supabase Auth e restringir as políticas RLS.
+- Ao alterar os HTML, aumente `VERSAO` em `sw.js` (ex.: `wheaton-v2`) para forçar a atualização nos aparelhos.
