@@ -693,30 +693,7 @@ Preencha os dados da transportadora e do carregamento.
 
 <div class="card-body">
 
-<div class="alert">
 
-<strong>Horário operacional:</strong>
-06:00 às 16:30.
-
-<br><br>
-
-<strong>Capacidade:</strong>
-Até <strong>5 veículos por horário</strong>.
-
-<br><br>
-
-<strong>Travas para caixas (transportadoras):</strong>
-Agendamento com <strong>1.000 caixas ou mais</strong> trava <strong>1 vaga por 3 horas</strong>.
-Não é permitido mais de <strong>1 agendamento de 900 caixas ou mais</strong> na mesma hora.
-O administrador não possui estas travas, e ao <strong>finalizar o carregamento</strong> as horas sobrantes são liberadas.
-
-<br><br>
-
-<strong>Antecedência mínima:</strong>
-Transportadoras somente podem realizar agendamentos com
-<strong>12 horas de antecedência</strong>. O administrador não possui esta trava.
-
-</div>
 
 
 <div class="grid">
@@ -1525,9 +1502,7 @@ Fechar
 WHEATON BRASIL VIDROS
 </strong>
 
-<span>
-Portal de Agendamento • Logística e Operações • v8 - 05/11/2026
-</span>
+
 
 </footer>
 
@@ -3989,7 +3964,7 @@ return `<tr><td>${_cfE(v.protocolo)}</td><td>${_cfE(v.pedido)}</td><td>${_cfE(v.
 const fb=document.getElementById('cfFinal');if(!fb)return;
 if(document.activeElement&&fb.contains(document.activeElement))return;
 const fin=CF.rom.filter(r=>r.status==='Finalizado'&&!(r.exportado&&String(r.nota_fiscal||'').trim())).sort((a,b)=>String(b.fim).localeCompare(String(a.fim)));
-fb.innerHTML=fin.map(r=>{const a=cfAg(r.protocolo);const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};const p=_cfE(r.protocolo);
+fb.innerHTML=fin.map(r=>{const a=cfAg(r.protocolo);const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||r.pdf_info||{};const p=_cfE(r.protocolo);
 return `<tr><td>${p}</td><td>${_cfE(r.cargas)}</td><td>${_cfE(pdf.cliente||a.cliente||'')}</td><td>${_cfE(r.motorista)}</td><td>${_cfD(r.fim)}</td><td><input data-nf="${p}" value="${_cfE(r.nota_fiscal||'')}" placeholder="Nº da NF" style="min-height:32px;padding:6px;min-width:130px"></td><td><input data-cert="${p}" value="${_cfE(r.certificado||'')}" placeholder="Nº do certificado" style="min-height:32px;padding:6px;min-width:160px"></td><td style="white-space:nowrap"><button class="btn btn-gray btn-small" onclick="cfSalvarNF('${p}')">Salvar NF/certificado</button> <button class="btn btn-blue btn-small" onclick="cfGerarPdf('${p}')">${r.exportado?'Gerar PDF novamente':'Gerar PDF'}</button></td></tr>`;}).join('')||'<tr><td colspan="8">Nenhum romaneio finalizado.</td></tr>';}
 
 async function cfAddAvulsa(){const ped=avPedido.value.trim();if(!ped)return alert('Informe o pedido/carga (xxxxxx/xx).');
@@ -4018,7 +3993,7 @@ if(await cfSave('conf_romaneios',r,'protocolo')){cfMsg.style.display='block';cfM
 async function cfPlanilha(){if(typeof XLSX==='undefined')return alert('Biblioteca de planilha não carregada. Verifique a internet.');
 const sv=CF.rom.filter(r=>r.status==='Finalizado'&&r.exportado&&String(r.nota_fiscal||'').trim()).sort((a,b)=>String(a.fim).localeCompare(String(b.fim)));
 if(!sv.length)return alert('Ainda não há romaneios salvos na pasta com nota fiscal.');
-const linhas=sv.map(r=>{const a=cfAg(r.protocolo)||{};const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};
+const linhas=sv.map(r=>{const a=cfAg(r.protocolo)||{};const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||r.pdf_info||{};
 return {'Protocolo':r.protocolo,'Cliente':pdf.cliente||a.cliente||'','Transportadora':a.transportadora||pdf.transportadora||'','Pedido':r.cargas||'','Nota fiscal':r.nota_fiscal||'','Certificado(s) de qualidade':r.certificado||'','Quantidade conferida':r.itens.filter(i=>i.ok===true).length,'Conferente':r.conferente||'','Data':r.fim?new Date(r.fim).toLocaleDateString('pt-BR'):'','Iniciado por':(r.checklist&&r.checklist.iniciado_por)||''};});
 const ws=XLSX.utils.json_to_sheet(linhas);ws['!cols']=[14,34,28,22,18,26,20,22,12,22].map(w=>({wch:w}));
 const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Romaneios');
@@ -4032,12 +4007,13 @@ try{if(CF.dir)await _cfGravaPasta(r);else cfPdf(r).save('Romaneio_'+prot+'.pdf')
 cfMsg.style.display='block';cfMsg.innerText='PDF do romaneio '+prot+' gerado'+(nf?' com a nota fiscal '+nf:'')+'.';if(document.activeElement)document.activeElement.blur();cfRender();}
 
 
-async function _cfImp(files){const m=cfMsg;m.style.display='block';m.innerText='Lendo '+files.length+' PDF(s)...';let ok=0,lista=[],falhas=[];
+async function _cfImp(files){const m=cfMsg;m.style.display='block';m.innerText='Lendo '+files.length+' PDF(s)...';let ok=0,lista=[],falhas=[];const lido=new Set();
 for(const f of files){try{const rs=await cfLerPdf(f);
 for(const r of rs){
 if(!r.carga){falhas.push(_cfE(f.name)+': pedido (carga) não encontrado no cabeçalho');continue;}
-const ja=CF.pdfs.find(p=>p.carga===r.carga);
-if(ja&&!confirm('O pedido '+r.carga+' já está cadastrado (arquivo '+ja.arquivo+', '+ja.itens.length+' itens).\nSubstituir pelos dados lidos agora de '+f.name+' ('+r.itens.length+' itens)?\n\nOK = substituir   |   Cancelar = manter o cadastro atual sem alterações')){lista.push(_cfE(r.carga)+' • já cadastrado — mantido sem alteração');continue;}
+const ja=CF.pdfs.find(p=>p.carga===r.carga)||lido.has(r.carga);
+if(ja){lista.push(_cfE(r.carga)+' • já incluído no portal — bloqueado (um pedido só pode ser incluído uma vez)');continue;}
+lido.add(r.carga);
 const {avisos,paginas,...row}=r;
 if(await cfSave('conf_pdfs',row,'carga')){ok++;const inc=r.itens.filter(i=>i.incompleto).length;
 lista.push(_cfE(r.carga)+' • '+_cfE(r.cliente||'sem cliente')+' • '+_cfE(r.transportadora||'sem transportadora')+' • '+r.itens.length+(r.total_pdf!=null?' de '+r.total_pdf:'')+' itens'+(r.total_pdf!=null?(r.validacao==='ok'?' ✔':' ✖ diferente do total do PDF'):'')+(inc?' • '+inc+' registro(s) com campo em branco':'')+(paginas>1?' • '+paginas+' páginas':''));}
@@ -4181,7 +4157,7 @@ ck.ok=true;ck.ok_em=new Date().toISOString();if(!await cfSave('conf_romaneios',r
 async function cfCkEditar(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r||!r.checklist)return;r.checklist.ok=false;await cfSave('conf_romaneios',r,'protocolo');cfRomRender();}
 
 function cfPdfCheck(d,r,a){const ck=r.checklist||{},M=10,W=190,R=M+W;
-const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};
+const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||r.pdf_info||{};
 const cf=(CF.conf||[]).find(c=>(c.nome||c.usuario)===r.conferente||c.usuario===r.conferente)||{};
 const T=(s,x,y,o)=>d.text(String(s==null?'':s),x,y,o),B=()=>d.setFont('helvetica','bold'),N=()=>d.setFont('helvetica','normal');
 const bx=(x,y,w,h,f)=>{d.setLineWidth(0.25);if(f){d.setFillColor(224,224,224);d.rect(x,y,w,h,'FD');}else d.rect(x,y,w,h);};
@@ -4230,7 +4206,7 @@ if(!await cfSave('conf_romaneios',r,'protocolo'))return;CF.rom.push(r);}CF.sel=p
 function cfRomRender(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r){cfRom.style.display='none';return;}cfRom.style.display='block';
 const a=cfAg(r.protocolo);
 const e=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||{};
+const pdf=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)))||r.pdf_info||{};
 const cliente=pdf.cliente||a.cliente||'';
 const cavalo=r.cavalo!=null?r.cavalo:(a.placa||'');
 const carreta=r.carreta!=null?r.carreta:'';
@@ -4304,7 +4280,7 @@ const cols={prod:M+1,desc:M+40,pal:M+128,res:M+152,sep:M+170,udm:M+175};
 const cabTab=y=>{B();d.setFontSize(8);T('Produto',cols.prod,y);T('Descrição',cols.desc,y);T('Pallet',cols.pal,y,{align:'right'});T('Qtd RES',cols.res,y,{align:'right'});T('Qtd SEP',cols.sep,y,{align:'right'});T('UDM',cols.udm,y);d.setLineWidth(0.2);d.line(M,y+1.5,R,y+1.5);N();};
 const fmt=v=>Number(v).toFixed(2);let y=0,pg=0,primeira=true;const temCk=!!(r.checklist&&r.checklist.ok);if(temCk){cfPdfCheck(d,r,a);primeira=false;}
 cargas.forEach((carga,k)=>{
- const pd=CF.pdfs.find(p=>String(p.carga)===carga)||{};
+ const pd=CF.pdfs.find(p=>String(p.carga)===carga)||r.pdf_info||{};
  let its=r.itens.filter(i=>String(i.carga)===carga);if(!its.length&&cargas.length===1)its=r.itens.slice();
  const ref=(pd.itens||[]).find(i=>i.produto)||its.find(i=>i.produto)||{};
  if(!primeira)d.addPage();primeira=false;cabPag(carga);
@@ -4349,12 +4325,19 @@ return d;}
 
 async function _cfGravaPasta(r){const fh=await CF.dir.getFileHandle('Romaneio_'+r.protocolo+'.pdf',{create:true});const w=await fh.createWritable();await w.write(cfPdf(r).output('blob'));await w.close();r.exportado=true;await cfSave('conf_romaneios',r,'protocolo');}
 
+async function cfExcluirPdfsFinalizados(r){try{const cs=String(r.cargas||'').split(/\s*,\s*/).filter(Boolean);
+for(const c of cs){const emUso=(CF.rom||[]).some(x=>x.protocolo!==r.protocolo&&x.status!=='Finalizado'&&String(x.cargas||'').split(/\s*,\s*/).includes(c));
+if(emUso)continue;await cfDel('conf_pdfs','carga',c);}
+CF.pdfs=await cfGet('conf_pdfs');}catch(e){}}
+
 async function cfFinalizar(){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(r.itens.some(i=>i.ok===null))return alert('Confira todos os itens antes de finalizar.');
 const mot=cfMot.value.trim();r.cavalo=cfCavalo.value.trim();r.carreta=cfCarreta.value.trim();if(!mot)return alert('Informe o nome do motorista.');if(!CF.sig.cfSigMot)return alert('É necessária a assinatura do motorista.');
 const bg=id=>{const c=document.getElementById(id),t=document.createElement('canvas');t.width=c.width;t.height=c.height;const x=t.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,t.width,t.height);x.drawImage(c,0,0);return t.toDataURL('image/png');};
 Object.assign(r,{motorista:mot,ass_mot:bg('cfSigMot'),status:'Finalizado',fim:new Date().toISOString()});
+{const _pp=CF.pdfs.find(p=>String(r.cargas||'').split(/\s*,\s*/).includes(String(p.carga)));if(_pp)r.pdf_info={cliente:_pp.cliente||'',transportadora:_pp.transportadora||'',itens:(_pp.itens||[]).slice(0,1)};}
 if(r.checklist)r.checklist.termino=r.fim;
 if(!await cfSave('conf_romaneios',r,'protocolo'))return;
+await cfExcluirPdfsFinalizados(r);
 alert(obterPerfil()==='admin'?'Romaneio finalizado e salvo. Informe a nota fiscal em Romaneios finalizados e gere o PDF.':'Romaneio finalizado e salvo. O PDF será gerado pelo administrador, após a inclusão da nota fiscal.');CF.sel=null;cfRomRender();cfRender();}
 
 async function cfCab(campo,valor){const r=CF.rom.find(x=>x.protocolo===CF.sel);if(!r)return;r[campo]=String(valor||'').trim();await cfSave('conf_romaneios',r,'protocolo');}
