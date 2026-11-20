@@ -39,10 +39,17 @@ Dois sites estáticos ligados ao **mesmo banco Supabase**:
 ## Observações
 - A chave `sb_publishable_...` é pública por natureza. **Nunca** publique a chave `secret`/`service_role`.
 - O login de administrador e o de conferente são verificados no próprio navegador e as tabelas liberam acesso ao papel `anon`. Isso atende a um uso interno, mas qualquer pessoa com a URL e a chave consegue ler/gravar. Para endurecer, o próximo passo é migrar o login para o Supabase Auth e restringir as políticas RLS.
-- Ao alterar os HTML, aumente `VERSAO` em `sw.js` (ex.: `wheaton-v3`) para forçar a atualização nos aparelhos.
+- Ao alterar os HTML, aumente `VERSAO` em `sw.js` (ex.: `wheaton-v4`) para forçar a atualização nos aparelhos.
 
-## Novidades desta versão (v2)
+## Novidades desta versão (v3)
 - Removido do agendamento o aviso de horário operacional, capacidade, travas e antecedência (as regras continuam valendo no sistema) e o texto do rodapé.
 - Conferência Digital: o mesmo PDF de pedido não pode ser incluído mais de uma vez; quando o protocolo é finalizado, o PDF do pedido é excluído automaticamente.
 - O SQL cria a coluna `pdf_info` em `conf_romaneios` (guarda cliente/transportadora do pedido, que é excluído ao finalizar). Se o banco já existe, basta rodar o SQL de novo.
-- `sw.js` atualizado para `wheaton-v2`, forçando a atualização nos aparelhos.
+- `sw.js` atualizado para `wheaton-v3`, forçando a atualização nos aparelhos.
+
+## Romaneio de Carga (Alcis RLS125) como pedido
+- O portal reconhece automaticamente o PDF "Romaneio de Carga" (pedido com "R" na frente, ex.: `R125675/1`) ao importar pela pasta Caminho de separação (Mapa de Preparação) ou pela seleção de arquivos.
+- O pedido é lido do campo Pedido (`R125675/1`); no agendamento basta informar `R125675`. Cliente, transportadora, cidade/UF, peso, cubagem e a lista de produtos com Qtd RES (CX) são lidos do PDF e conferidos com o total de itens e de caixas.
+- Na conferência, cada produto é uma linha (o código do produto ocupa o lugar do pallet, e pode ser digitado/lido no campo de leitura), com OK/observação e assinatura do motorista como nos demais pedidos. O romaneio finalizado sai com UDM = CX.
+- Rode o SQL de novo no Supabase (novas colunas `cidade`, `uf`, `cubagem`, `formato`).
+- Aceita o PDF "Romaneio de Carga" (Alcis RLS125, pedido com "R" na frente, ex.: R125675/1) como Mapa de Preparação: basta colocá-lo na mesma pasta dos demais PDFs. A conferência é feita item a item pelo código do produto.

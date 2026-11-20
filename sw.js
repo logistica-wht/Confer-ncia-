@@ -1,5 +1,5 @@
 // Service worker: guarda só os arquivos estáticos. Dados do Supabase NUNCA são cacheados.
-const VERSAO = "wheaton-v2";
+const VERSAO = "wheaton-v3";
 const ARQUIVOS = ["./", "./index.html", "./conferente.html", "./config.js",
   "./manifest.webmanifest", "./conferente.webmanifest", "./icon-192.png", "./icon-512.png"];
 

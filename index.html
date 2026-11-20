@@ -3935,7 +3935,62 @@ return{carga:String(g.carga||''),cliente:cl.n,cliente_cod:cl.c,transportadora,pe
 
 /* Cada pedido (xxxxxx/xx) é único: páginas do mesmo pedido formam UM registro, e um PDF com
    vários pedidos gera um registro para cada um. Página sem cabeçalho continua o pedido anterior. */
+/* ===== Romaneio de Carga (Alcis RLS125): pedido com "R" na frente (ex.: R125675/1) =====
+   Cada linha é um PRODUTO com Qtd RES em caixas (CX). Entra na conferência como os demais:
+   o código do produto ocupa o lugar do pallet e a quantidade fica em "up". */
+function cfEhRomaneio(pgs){return pgs.some(p=>/Romaneio\s+de\s+Carga/i.test(p.t)&&/Qtd\s*RES/i.test(p.t));}
+function cfParseRomaneio(pgs,nome){
+const grupos=[],mapa={};
+pgs.forEach((pg,n)=>{const m=pg.t.match(/Carga\s*:?\s*([A-Z]\d{4,})/i);const hc=m?m[1].toUpperCase():'';
+ let g=hc?mapa[hc]:grupos[grupos.length-1];
+ if(!g){g={carga:hc,pgs:[],pag:[]};grupos.push(g);if(hc)mapa[hc]=g;}
+ g.pgs.push(pg);g.pag.push(n+1);});
+return grupos.map(g=>{
+ let ped='',cliente='',cod='',tr='',cid='',uf='',peso='',cub='',totItens=null,totRes=null,cab=null;
+ const itens=[],avisos=[],seen={};
+ g.pgs.forEach((pg,pn)=>{
+  const L=cfLinhas(pg.its),T=pg.t;
+  L.forEach(l=>l.it.forEach(i=>{const s=String(i.s).trim();let m;
+   if(!ped&&/^[A-Z]\d{4,}\/\d{1,3}$/.test(s)){ped=s;
+    const nums=l.it.map(x=>String(x.s).trim()).filter(x=>/^\d{1,4}$/.test(x));if(nums.length&&totItens===null)totItens=Number(nums[0]);
+    const hl=L.filter(h=>h.y>l.y&&h.y-l.y<=30&&h.it.some(x=>/^Cliente$/i.test(String(x.s).trim()))).sort((a,b)=>a.y-b.y)[0];
+    if(hl){const lab=hl.it.find(x=>/^Cliente$/i.test(String(x.s).trim()));const c=l.it.find(x=>Math.abs(cfCentro(x)-cfCentro(lab))<=60);if(c)cod=String(c.s).trim();}}
+   if(!cliente&&(m=s.match(/^Nome:\s*(.+)$/i)))cliente=m[1].trim();
+   if(!cid&&(m=s.match(/^Cidade:\s*(.+)$/i))){cid=m[1].replace(/\s+UF:.*$/i,'').trim();const u=m[1].match(/UF:\s*([A-Z]{2})\b/);if(u&&!uf)uf=u[1];}
+   if(!uf&&(m=s.match(/^UF:\s*([A-Z]{2})$/)))uf=m[1];
+   if(!tr&&(m=s.match(/^\d{4,}\s*-\s*(\S.*)$/)))tr=m[1].trim();}));
+  {let m;if(!cliente&&(m=T.match(/Nome:\s*(.+?)(?=\s+(?:Cidade:|N°\s*Coleta|Data:)|$)/i)))cliente=m[1].trim();
+   if(!cid&&(m=T.match(/Cidade:\s*(.+?)(?=\s+UF:|$)/i)))cid=m[1].trim();
+   if(!uf&&(m=T.match(/UF:\s*([A-Z]{2})\b/)))uf=m[1];
+   if(!tr&&(m=T.match(/Zona\s+de\s+Entrega:?\s*(?:\d+\s+)?\d{4,}\s*-\s*(.+?)(?=\s+(?:Doca:|MOTORISTA|RG:|Nome:)|$)/i)))tr=m[1].trim();}
+  if(!peso){let m=T.match(/Totais\s+da\s+Carga\s*==>\s*([\d.]+)\s+([\d.]+)\s+(\d+)/i)||T.match(/PESO:\s*([\d.]+)\s*M3:\s*([\d.]+)\s*QTD\s*RES:\s*(\d+)/i);
+   if(m){peso=m[1];cub=m[2];totRes=Number(m[3]);}}
+  const hd=L.find(l=>l.it.some(i=>/^Produto$/i.test(String(i.s).trim()))&&l.it.some(i=>/^Qtd\s*RES$/i.test(String(i.s).trim())));
+  if(hd)cab={y:hd.y,prod:hd.it.find(i=>/^Produto$/i.test(String(i.s).trim())),desc:hd.it.find(i=>/^Descri/i.test(String(i.s).trim())),qtd:hd.it.find(i=>/^Qtd\s*RES$/i.test(String(i.s).trim()))};
+  if(!cab)return;
+  L.filter(l=>l.y<cab.y-2).forEach(l=>{
+   const cd=l.it.find(i=>Math.abs(i.x-cab.prod.x)<=15&&/^[A-Za-z0-9.\-]{3,}$/.test(String(i.s).trim()));
+   const q=l.it.find(i=>Math.abs(cfCentro(i)-cfCentro(cab.qtd))<=40&&/^\d+(?:\.\d+)?$/.test(String(i.s).trim()));
+   if(!cd||!q)return;
+   const ds=l.it.filter(i=>i!==cd&&i!==q&&cab.desc&&i.x>=cab.desc.x-5&&cfCentro(i)<cfCentro(cab.qtd)-40).map(i=>String(i.s).trim()).join(' ').replace(/\s+/g,' ').trim();
+   const um=l.it.find(i=>i.x>cfCentro(cab.qtd)+30&&/^[A-Z]{1,3}$/.test(String(i.s).trim()));
+   let cod2=String(cd.s).trim(),k=cod2,n2=1;while(seen[k]){n2++;k=cod2+'-'+n2;}seen[k]=1;
+   const it={pallet:k,lote:'',endereco:'',produto:cod2,descricao:ds,up:Number(String(q.s).trim()),udm:um?String(um.s).trim():'CX',pagina:g.pag[pn]};
+   if(!ds){it.incompleto=true;it.faltando=['descrição'];}
+   itens.push(it);});
+ });
+ const carga=ped||g.carga||((String(nome).match(/[A-Z]\d{5,}/i)||[''])[0].toUpperCase());
+ const soma=itens.reduce((s,i)=>s+(i.up||0),0);
+ let validacao='sem total no PDF';
+ if(totItens!==null){const okI=totItens===itens.length,okQ=totRes===null||Math.abs(soma-totRes)<0.001;
+  validacao=okI&&okQ?'ok':'divergente: PDF informa '+totItens+' itens'+(totRes!==null?' / '+totRes+' CX':'')+', lidos '+itens.length+' / '+soma+' CX';}
+ const inc=itens.filter(i=>i.incompleto);if(inc.length)avisos.push(inc.length+' registro(s) incompleto(s)');
+ if(!itens.length)avisos.push('nenhum item encontrado no romaneio');
+ if(!g.pgs.map(p=>p.t).join('').trim())avisos.push('PDF sem texto (imagem/escaneado)');
+ return{carga,cliente,cliente_cod:cod,transportadora:tr,cidade:cid,uf,peso,cubagem:cub,total_pdf:totItens,qtd_lida:itens.length,validacao,arquivo:nome,itens,criado:new Date().toISOString(),avisos,paginas:g.pgs.length,formato:'romaneio'};});}
+
 function cfParsePdf(pgs,nome){
+if(cfEhRomaneio(pgs))return cfParseRomaneio(pgs,nome);
 const heads=pgs.map(cfCabecalho);const grupos=[],mapa={};
 pgs.forEach((pg,n)=>{const h=heads[n];let g=null;
  if(h.carga){g=mapa[h.carga];
@@ -4235,10 +4290,10 @@ ${campo('Fim da conferência',r.fim?_cfD(r.fim):'Em andamento')}
 <div class="form-group" style="margin:0"><label>Certificado(s) de qualidade nº(s) (administrativo)</label><input value="${e(r.certificado||'')}" placeholder="Nº do certificado" onchange="cfCab('certificado',this.value)"></div>
 <div class="form-group" style="margin:0"><label>Nº do lacre aplicado</label><input value="${e(ck.lacre||'')}" onchange="cfCkCampo('lacre',this.value)"></div>
 </div>
-<div class="form-group" style="max-width:360px;margin-bottom:12px"><label>Ler / digitar nº do pallet</label><input id="cfScan" placeholder="Pallet" onkeydown="if(event.key==='Enter')cfScanOk(this)"></div>
-<div class="table-wrapper"><table><thead><tr><th>Conferir</th><th>#</th><th>Pedido</th><th>Pallet</th><th>Produto</th><th>Observação</th></tr></thead><tbody>${r.itens.map((i,n)=>`<tr style="${i.ok===true?'background:#e9f7ef':i.ok===false?'background:#ffebee':''}">
-<td style="white-space:nowrap"><button class="btn btn-green btn-small" style="min-height:26px;padding:2px 10px;font-size:12px;width:auto" onclick="cfMarca(${n},true)">OK</button> <button class="btn btn-gray btn-small" onclick="cfTrocar(${n})">Trocar pallet</button>${i.pallet_orig?` <button class="btn btn-gray btn-small" onclick="cfDesfazTroca(${n})">Desfazer troca</button>`:''}</td>
-<td>${n+1}</td><td>${e(i.carga)}</td><td>${e(i.pallet)}${i.adicionado?'<br><small style="color:#1565c0;font-weight:700">adicionado na conferência</small>':''}${i.pallet_orig?`<br><small style="color:#c86b00;font-weight:700">trocado (antes: ${e(i.pallet_orig)})</small>`:''}</td><td>${e(i.produto)}${i.descricao?`<br><small style="color:#6b7785">${e(i.descricao)}</small>`:''}</td>
+<div class="form-group" style="max-width:360px;margin-bottom:12px"><label>Ler / digitar nº do pallet ou código do produto</label><input id="cfScan" placeholder="Pallet" onkeydown="if(event.key==='Enter')cfScanOk(this)"></div>
+<div class="table-wrapper"><table><thead><tr><th>Conferir</th><th>#</th><th>Pedido</th><th>${r.itens.some(i=>i.udm)?'Pallet / Código':'Pallet'}</th><th>Produto</th><th>Observação</th></tr></thead><tbody>${r.itens.map((i,n)=>`<tr style="${i.ok===true?'background:#e9f7ef':i.ok===false?'background:#ffebee':''}">
+<td style="white-space:nowrap"><button class="btn btn-green btn-small" style="min-height:26px;padding:2px 10px;font-size:12px;width:auto" onclick="cfMarca(${n},true)">OK</button> ${i.udm?'':`<button class="btn btn-gray btn-small" onclick="cfTrocar(${n})">Trocar pallet</button>`}${i.pallet_orig?` <button class="btn btn-gray btn-small" onclick="cfDesfazTroca(${n})">Desfazer troca</button>`:''}</td>
+<td>${n+1}</td><td>${e(i.carga)}</td><td>${e(i.pallet)}${i.adicionado?'<br><small style="color:#1565c0;font-weight:700">adicionado na conferência</small>':''}${i.pallet_orig?`<br><small style="color:#c86b00;font-weight:700">trocado (antes: ${e(i.pallet_orig)})</small>`:''}</td><td>${e(i.produto)}${i.descricao?`<br><small style="color:#6b7785">${e(i.descricao)}</small>`:''}${i.udm?`<br><small style="font-weight:700">Qtd: ${e(i.up)} ${e(i.udm)}</small>`:''}</td>
 <td><input value="${e(i.obs||'')}" onchange="cfObs(${n},this.value)" style="min-height:32px;padding:6px"></td></tr>`).join('')}</tbody></table></div>
 <div class="grid" style="margin-top:18px"><div class="col-6 form-group"><label>Assinatura do motorista</label><canvas id="cfSigMot" width="420" height="140" style="border:1px solid var(--border);border-radius:5px;touch-action:none;max-width:100%"></canvas><button class="btn btn-gray btn-small" style="margin-top:6px;width:90px" onclick="cfLimpa('cfSigMot')">Limpar</button></div></div>
 <div class="actions"><button class="btn btn-gray" onclick="CF.sel=null;cfRomRender()">Fechar</button><button class="btn btn-gray" onclick="cfCkEditar()">Editar check-list</button><button class="btn btn-blue" onclick="cfFinalizar()">Finalizar e assinar romaneio</button></div></div>`;
@@ -4299,7 +4354,7 @@ cargas.forEach((carga,k)=>{
   const up=Number(i.up)||1,sp=i.ok===false?0:up;res+=up;sep+=sp;
   if(n%2===0){d.setFillColor(224,224,224);d.rect(M,y-3.6,W,5,'F');}
   T(i.produto||ref.produto||'',cols.prod,y);T(String(i.descricao||ref.descricao||'').substring(0,48),cols.desc,y);
-  T(i.pallet,cols.pal,y,{align:'right'});T(fmt(up),cols.res,y,{align:'right'});T(fmt(sp),cols.sep,y,{align:'right'});T('PLT',cols.udm,y);y+=5;});
+  T(i.udm?'':i.pallet,cols.pal,y,{align:'right'});T(fmt(up),cols.res,y,{align:'right'});T(fmt(sp),cols.sep,y,{align:'right'});T(i.udm||'PLT',cols.udm,y);y+=5;});
  if(y>268){d.addPage();cabPag(carga);y=36;}
  y+=3;d.setFillColor(224,224,224);d.rect(M,y-4,W,6.5,'F');B();d.setFontSize(8);
  T('Totais da Carga==>  PESO: '+(pd.peso?fmt(pd.peso):''),M+2,y);T('M3: '+(pd.cubagem?fmt(pd.cubagem):''),M+62,y);T('QTD RES: '+res,M+110,y);T('QTD SEP: '+sep,M+150,y);N();y+=10;
